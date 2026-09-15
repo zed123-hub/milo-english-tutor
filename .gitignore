@@ -1,0 +1,53 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/.vinext/
+/out/
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# local environment
+.env*
+
+# deployment and generated files
+.vercel
+.openai/
+next-env.d.ts
+/dist/
+/.wrangler/
+/outputs/
+/work/
+
+# TypeScript incremental cache
+*.tsbuildinfo
+
+# Local personal data and generated packages
+.milo-data/
+.milo-build/
+dist-local/
+releases/
+
+# Local-only author files
+/.private/
+/AGENTS.md
+**/PROJECT_PLAN.md

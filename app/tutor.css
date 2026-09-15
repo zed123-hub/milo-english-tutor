@@ -1,0 +1,621 @@
+.t-app {
+  --primary: #2356e8;
+  --primary-foreground: #fff;
+  --background: #fff;
+  --foreground: #172744;
+  --muted: #edf2fa;
+  --muted-foreground: #536582;
+  --border: #dbe3f0;
+  --input: #cfdae9;
+  --ring: #2356e8;
+  background: #f7f9fd;
+  color: #172744;
+  min-height: 100svh;
+  font-family: Inter, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  line-height: 1.65;
+  font-size: 16px;
+}
+.t-app * {
+  box-sizing: border-box;
+}
+.t-app button,
+.t-dialog button {
+  cursor: pointer;
+  min-height: 42px;
+  padding: 10px 16px;
+  font-size: 0.9rem;
+  white-space: normal;
+}
+.t-header {
+  height: 100px;
+  max-width: 1440px;
+  margin: auto;
+  padding: 0 5%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid #e4eaf4;
+}
+.t-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: inherit;
+  text-decoration: none;
+}
+.t-brand > svg {
+  background: #2356e8;
+  color: white;
+  width: 40px;
+  height: 40px;
+  padding: 8px;
+  border-radius: 13px;
+}
+.t-brand > span {
+  font-size: 2.1rem;
+  font-weight: 750;
+  letter-spacing: -2px;
+}
+.t-brand-dot {
+  color: #2356e8;
+}
+.t-brand small {
+  font-size: 0.9rem;
+  font-weight: 450;
+  letter-spacing: 1px;
+  margin-left: 12px;
+  color: #526580;
+}
+.t-header button {
+  gap: 10px;
+}
+.t-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 100%;
+  display: inline-block;
+  background: #2356e8;
+  flex-shrink: 0;
+}
+.t-layout {
+  max-width: 1330px;
+  margin: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 8%;
+  padding: 65px 5% 80px;
+}
+.t-main {
+  min-width: 0;
+}
+.t-eyebrow {
+  font-size: 0.75rem;
+  letter-spacing: 2.2px;
+  font-weight: 650;
+  color: #3a5fa5;
+  margin: 0 0 22px;
+}
+.t-main h1 {
+  font-size: clamp(2.3rem, 4.2vw, 3.6rem);
+  line-height: 1.32;
+  font-weight: 550;
+  letter-spacing: -2px;
+  margin: 0 0 22px;
+}
+.t-main h1 > span {
+  color: #2356e8;
+}
+.t-lead {
+  font-size: 1.06rem;
+  line-height: 1.9;
+  color: #536582;
+  margin: 0 0 30px;
+  max-width: 600px;
+}
+.t-muted {
+  color: #536582;
+  font-size: 0.93rem;
+}
+.t-profile {
+  display: grid;
+  gap: 22px;
+  max-width: 600px;
+  margin-top: 30px;
+}
+.t-choice {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.t-choice legend {
+  font-size: 0.9rem;
+  margin-bottom: 10px;
+  font-weight: 550;
+}
+.t-choice > div {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.t-choice button {
+  background: transparent;
+  color: #536582;
+  border-color: #dbe3f0;
+  box-shadow: none;
+}
+.t-choice button[aria-pressed='true'] {
+  color: #204ec6;
+  background: #e9efff;
+  border-color: #83a2f8;
+}
+.t-field {
+  display: grid;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: #354963;
+}
+.t-field input,
+.t-composer input {
+  min-height: 44px;
+  font-size: 1rem;
+  background: #fff;
+  border-color: #ced8e8;
+}
+.t-primary {
+  background: #2356e8 !important;
+  color: #fff !important;
+  border: 0 !important;
+  min-height: 48px !important;
+  padding: 13px 23px !important;
+  gap: 16px !important;
+  border-radius: 10px !important;
+}
+.t-profile > .t-primary {
+  justify-self: start;
+  margin-top: 4px;
+}
+.t-aside {
+  padding-top: 8px;
+}
+.t-aside h2 {
+  font-size: 1.35rem;
+  font-weight: 550;
+  letter-spacing: -0.5px;
+  margin: 0 0 12px;
+}
+.t-aside .t-eyebrow {
+  font-size: 0.7rem;
+  margin-bottom: 14px;
+}
+.t-observations {
+  border-top: 1px solid #dce4f1;
+  margin-top: 30px;
+}
+.t-observations > div {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 2px 12px;
+  padding: 19px 0;
+  border-bottom: 1px solid #dce4f1;
+  align-items: center;
+}
+.t-observations svg {
+  width: 19px;
+  color: #466bb5;
+}
+.t-observations span {
+  font-size: 0.9rem;
+}
+.t-observations strong {
+  grid-column: 2;
+  font-size: 0.88rem;
+  color: #738099;
+  font-weight: 400;
+}
+.t-footnote {
+  font-size: 0.8rem;
+  color: #738099;
+  line-height: 1.8;
+  margin-top: 18px;
+}
+.t-note {
+  padding: 25px;
+  margin: 35px 0 14px;
+  border-left: 2px solid #7097f4;
+  background: #ecf2ff;
+  border-radius: 0 12px 12px 0;
+}
+.t-note h3 {
+  font-size: 0.95rem;
+  font-weight: 550;
+  display: inline;
+  margin-left: 9px;
+}
+.t-note p {
+  font-size: 0.9rem;
+  color: #536582;
+  margin: 12px 0 0;
+}
+.t-aside > button {
+  font-size: 0.85rem !important;
+  color: #496492;
+}
+.t-footer {
+  border-top: 1px solid #e1e7f2;
+  max-width: 1280px;
+  margin: auto;
+  padding: 23px 4%;
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: 0.8rem;
+  color: #7d8ca4;
+}
+.t-session-meta {
+  display: flex;
+  gap: 20px;
+  align-items: start;
+  justify-content: space-between;
+}
+.t-session-meta > span {
+  font-size: 0.8rem;
+  color: #738099;
+}
+.t-main h1.t-task-title {
+  font-size: 2.5rem;
+}
+.t-conversation {
+  background: #fff;
+  border: 1px solid #e0e7f3;
+  border-radius: 20px;
+  padding: 30px;
+  margin: 25px 0;
+  box-shadow: 0 12px 32px #17356704;
+}
+.t-speaker {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.t-speaker small {
+  display: block;
+  color: #78869d;
+  font-size: 0.78rem;
+  font-weight: 400;
+}
+.t-avatar {
+  background: #e9efff;
+  color: #2356e8;
+  width: 44px;
+  height: 44px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+}
+.t-prompt {
+  font-size: 1.55rem;
+  line-height: 1.6;
+  letter-spacing: -0.4px;
+  margin: 26px 0;
+  overflow-wrap: anywhere;
+}
+.t-conversation button {
+  color: #2356e8;
+  gap: 8px;
+}
+.t-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+}
+.t-hint {
+  background: #edf2fe;
+  border-left: 3px solid #789cf2;
+  padding: 16px 22px;
+  margin: 20px 0;
+}
+.t-hint > span {
+  font-size: 0.78rem;
+  color: #486aa9;
+}
+.t-hint > p {
+  margin: 8px 0 0;
+}
+.t-composer {
+  margin-top: 30px;
+}
+.t-composer > label {
+  font-size: 0.9rem;
+  display: block;
+  margin-bottom: 10px;
+  color: #536582;
+}
+.t-composer > div {
+  display: flex;
+  gap: 8px;
+}
+.t-composer small {
+  font-size: 0.78rem;
+  color: #78869d;
+  display: block;
+  margin-top: 10px;
+}
+.t-review {
+  padding: 25px;
+  border: 1px solid #a3b9ec;
+  background: #edf2ff;
+  border-radius: 16px;
+  margin-top: 25px;
+}
+.t-review p {
+  margin: 0 0 20px;
+}
+.t-recap {
+  margin: 30px 0;
+}
+.t-recap > div {
+  display: flex;
+  gap: 12px;
+  padding: 16px 0;
+  border-bottom: 1px solid #dce4f1;
+}
+.t-recap svg {
+  width: 20px;
+  color: #2356e8;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+.t-recap small {
+  display: block;
+  color: #738099;
+  font-size: 0.85rem;
+  margin-top: 5px;
+}
+.t-error {
+  border: 1px solid #e6afac;
+  background: #fff2f1;
+  color: #963d36;
+  padding: 14px 18px;
+  border-radius: 10px;
+  margin-bottom: 24px;
+  font-size: 0.9rem;
+}
+.t-error a {
+  display: block;
+  color: #2356e8;
+  text-decoration: underline;
+  margin-top: 8px;
+}
+.t-error button {
+  margin-left: 8px;
+}
+.t-dialog {
+  --primary: #2356e8;
+  --primary-foreground: white;
+  background: #f7f9fd !important;
+  color: #172744 !important;
+  width: min(640px, calc(100vw - 32px)) !important;
+  max-width: 640px !important;
+  max-height: 90svh;
+  overflow: auto;
+  padding: 32px !important;
+  font-family: Inter, 'PingFang SC', sans-serif;
+  font-size: 1rem;
+}
+.t-dialog [data-slot='dialog-title'] {
+  font-size: 1.4rem;
+}
+.t-dialog [data-slot='dialog-description'] {
+  font-size: 0.9rem;
+  color: #536582;
+  line-height: 1.8;
+}
+.t-settings {
+  display: grid;
+  gap: 18px;
+  margin-top: 12px;
+}
+.t-settings h3 {
+  font-weight: 600;
+  font-size: 1.05rem;
+  margin: 0;
+}
+.t-settings p {
+  margin: 0;
+}
+.t-settings hr {
+  border-color: #dce4f1;
+  margin: 4px 0;
+}
+.t-settings .t-choice button {
+  font-size: 0.85rem;
+}
+.t-dialog .t-profile {
+  margin-top: 5px;
+}
+.t-choice [data-slot='radio-group'] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.t-choice [data-slot='radio-group'] > label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  border: 1px solid #d0dced;
+  border-radius: 9px;
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  color: #536582;
+  background: transparent;
+}
+.t-choice [data-slot='radio-group'] > label.is-selected {
+  color: #204ec6;
+  background: #e9efff;
+  border-color: #83a2f8;
+}
+.t-choice [data-slot='radio-group-item'] {
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  padding: 0;
+  border-radius: 100%;
+}
+.t-voice-area {
+  text-align: center;
+  padding: 18px 0 12px;
+}
+.t-voice-area p {
+  margin: 12px 0;
+  font-size: 1rem;
+}
+.t-voice-area .t-actions {
+  justify-content: center;
+  margin-top: 16px;
+}
+.t-voice-area small {
+  font-size: 0.8rem;
+  color: #6c7d98;
+  display: block;
+  margin: 12px 0;
+}
+.t-voice-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 48px;
+  margin: 12px 0;
+}
+.t-voice-mark span {
+  display: block;
+  width: 6px;
+  height: 16px;
+  border-radius: 8px;
+  background: #8aa8f5;
+}
+.t-voice-mark span:nth-child(2),
+.t-voice-mark span:nth-child(4) {
+  height: 28px;
+}
+.t-voice-mark span:nth-child(3) {
+  height: 43px;
+  background: #2356e8;
+}
+.t-voice-mark.is-active span {
+  animation: t-voice 1s ease-in-out infinite alternate;
+}
+.t-voice-mark.is-active span:nth-child(2n) {
+  animation-delay: 0.4s;
+}
+@keyframes t-voice {
+  to {
+    transform: scaleY(0.4);
+  }
+}
+.t-live-status {
+  color: #2356e8;
+  font-size: 0.9rem;
+}
+.t-live-status .t-dot {
+  margin-right: 8px;
+}
+.t-review small {
+  display: block;
+  font-size: 0.8rem;
+  color: #62769b;
+  margin-bottom: 20px;
+}
+@media (max-width: 1000px) {
+  .t-layout {
+    gap: 5%;
+    grid-template-columns: minmax(0, 1fr) 270px;
+    padding-top: 45px;
+  }
+  .t-header {
+    height: 85px;
+  }
+  .t-brand small {
+    display: none;
+  }
+  .t-main h1 {
+    letter-spacing: -1px;
+  }
+}
+@media (max-width: 760px) {
+  .t-layout {
+    display: flex;
+    flex-direction: column;
+    padding: 35px 22px 40px;
+  }
+  .t-header {
+    padding: 0 22px;
+    height: 80px;
+  }
+  .t-brand > span {
+    font-size: 1.85rem;
+  }
+  .t-header button {
+    padding: 8px 10px;
+    font-size: 0.8rem;
+  }
+  .t-aside {
+    margin-top: 55px;
+    border-top: 1px solid #dce4f1;
+    padding-top: 30px;
+  }
+  .t-aside .t-observations {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 15px;
+  }
+  .t-observations > div {
+    display: flex;
+    align-items: start;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .t-observations span,
+  .t-observations strong {
+    font-size: 0.8rem;
+  }
+  .t-main h1 {
+    font-size: 2.55rem;
+  }
+  .t-main h1.t-task-title {
+    font-size: 2.15rem;
+  }
+  .t-choice button {
+    font-size: 0.85rem;
+    padding: 10px 12px;
+  }
+  .t-footer {
+    flex-direction: column;
+    padding: 22px;
+    gap: 5px;
+  }
+  .t-conversation {
+    padding: 24px;
+  }
+  .t-dialog {
+    padding: 25px !important;
+  }
+  .t-session-meta .t-eyebrow {
+    max-width: 180px;
+  }
+  .t-session-meta > span {
+    white-space: nowrap;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .t-app * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
