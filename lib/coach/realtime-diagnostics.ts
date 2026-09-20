@@ -217,10 +217,6 @@ export class RealtimeDiagnostics {
     }
     if (event.type === 'session.created') {
       this.mark('connected');
-      if (this.data.provider === 'openai' && !c.sessionUpdatesAccepted) {
-        c.sessionUpdatesAccepted++;
-        this.mark('session_update_accepted');
-      }
     } else if (event.type === 'session.updated') {
       if (
         c.sessionUpdatesAccepted + c.sessionUpdatesRejected <

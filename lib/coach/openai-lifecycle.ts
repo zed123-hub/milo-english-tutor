@@ -15,6 +15,7 @@ export class OpenAILifecycle {
     'idle';
   private responseId = '';
   private cancelSent = false;
+  private clearPending = false;
   private terminalResponses = new Set<string>();
   private updateId = '';
   private queuedPolicy: string | undefined;
@@ -90,12 +91,13 @@ export class OpenAILifecycle {
       if (!['requested', 'responding'].includes(this.response)) return;
       this.response = 'cancel_pending';
       if (this.responseId) this.cancelResponse();
-    } else if (
-      ['output_audio_buffer.clear', 'conversation.item.create'].includes(
-        event.type,
-      )
-    )
-      this.write(event);
+    } else if (event.type === 'output_audio_buffer.clear') {
+      // A requested response may not have an ID yet. Preserve cancel -> clear
+      // on the wire instead of clearing first and allowing generation to refill it.
+      if (this.response === 'cancel_pending' && !this.cancelSent)
+        this.clearPending = true;
+      else this.write(event);
+    } else if (event.type === 'conversation.item.create') this.write(event);
     // No input_audio_buffer.commit in OpenAI's automatic server-VAD mode.
   }
   accept(event: RealtimeEvent, errorEventId?: string): RealtimeEvent | null {
@@ -127,6 +129,8 @@ export class OpenAILifecycle {
       this.rememberTerminal(id);
       this.response = 'idle';
       this.cancelSent = false;
+      // Never replay an old, unsent clear after this response has ended.
+      this.clearPending = false;
     } else if (
       event.type === 'error' &&
       event.error?.code === 'response_cancel_not_active'
@@ -153,6 +157,12 @@ export class OpenAILifecycle {
   private cancelResponse() {
     this.cancelSent = true;
     this.write({ type: 'response.cancel' });
+    this.flushClear();
+  }
+  private flushClear() {
+    if (!this.clearPending) return;
+    this.clearPending = false;
+    this.write({ type: 'output_audio_buffer.clear' });
   }
   private rememberTerminal(id?: string) {
     if (id) this.terminalResponses.add(id);
@@ -166,6 +176,7 @@ export class OpenAILifecycle {
   }
   close() {
     this.closed = true;
+    this.clearPending = false;
     this.queuedPolicy = undefined;
     this.requested.clear();
   }

@@ -858,7 +858,6 @@ export class VoiceCoach {
     };
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    diagnostic.sent('session.update');
     const answer = await this.client.request(
       'realtime',
       {

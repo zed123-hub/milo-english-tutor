@@ -180,6 +180,69 @@ void test('OpenAI lifecycle: rejected policy retains exact safe path without ter
   assert.equal(life.updates.sent, 2);
 });
 
+void test('OpenAI lifecycle: interrupted request cancels before clearing audio when response creation is delayed', () => {
+  const { life, sent, interrupt, count } = fixture('openai');
+  assert.ok(life instanceof OpenAILifecycle);
+  interrupt();
+  life.command({ type: 'output_audio_buffer.clear' });
+  interrupt();
+  life.command({ type: 'output_audio_buffer.clear' });
+  assert.equal(count('output_audio_buffer.clear'), 0);
+  life.accept(created('delayed'));
+  assert.deepEqual(
+    sent.slice(-2).map((e) => e.type),
+    ['response.cancel', 'output_audio_buffer.clear'],
+  );
+  life.accept(created('delayed'));
+  assert.equal(count('response.cancel'), 1);
+  assert.equal(count('output_audio_buffer.clear'), 1);
+});
+
+void test('OpenAI lifecycle: cancellation clears active audio and completed playback, but close discards deferred clear', () => {
+  const active = fixture('openai');
+  assert.ok(active.life instanceof OpenAILifecycle);
+  active.life.accept(created('active'));
+  active.interrupt();
+  active.life.command({ type: 'output_audio_buffer.clear' });
+  assert.deepEqual(
+    active.sent.slice(-2).map((e) => e.type),
+    ['response.cancel', 'output_audio_buffer.clear'],
+  );
+  // Generation can finish before the WebRTC playback buffer finishes playing.
+  const playing = fixture('openai');
+  assert.ok(playing.life instanceof OpenAILifecycle);
+  playing.life.accept(created('playing'));
+  playing.life.accept(done('playing'));
+  playing.interrupt();
+  playing.life.command({ type: 'output_audio_buffer.clear' });
+  assert.equal(playing.count('response.cancel'), 0);
+  assert.equal(playing.count('output_audio_buffer.clear'), 1);
+
+  const closed = fixture('openai');
+  assert.ok(closed.life instanceof OpenAILifecycle);
+  closed.interrupt();
+  closed.life.command({ type: 'output_audio_buffer.clear' });
+  closed.life.close();
+  closed.life.accept(created('late'));
+  assert.equal(closed.count('response.cancel'), 0);
+  assert.equal(closed.count('output_audio_buffer.clear'), 0);
+});
+
+void test('OpenAI lifecycle: a terminal before creation discards the deferred clear without touching the next reply', () => {
+  const { life, interrupt, request, count } = fixture('openai');
+  assert.ok(life instanceof OpenAILifecycle);
+  interrupt();
+  life.command({ type: 'output_audio_buffer.clear' });
+  life.accept(done('terminal-before-created'));
+  assert.equal(count('response.cancel'), 0);
+  assert.equal(count('output_audio_buffer.clear'), 0);
+  request();
+  life.accept(created('next'));
+  assert.equal(life.state, 'responding');
+  assert.equal(count('response.cancel'), 0);
+  assert.equal(count('output_audio_buffer.clear'), 0);
+});
+
 void test('Qwen lifecycle: server VAD never creates ordinary turns; policy waits for response then ACK', () => {
   const { life, sent, request, count } = fixture('qwen');
   life.accept(created('a'));
@@ -431,8 +494,19 @@ void test('diagnostics: only protocol metadata persists; audio, text, key, event
 
 void test('OpenAI diagnostics: RTP packet counters never masquerade as PCM append frames', () => {
   const diagnostic = new RealtimeDiagnostics('openai');
+  diagnostic.event({ type: 'session.created' });
+  assert.equal(diagnostic.snapshot().counts.sessionUpdatesAccepted, 0);
+  assert.deepEqual(
+    diagnostic.snapshot().milestones.map((m) => m.event),
+    ['connected'],
+  );
   diagnostic.sent('session.update');
   diagnostic.event({ type: 'session.created' });
+  assert.equal(
+    diagnostic.snapshot().counts.sessionUpdatesAccepted,
+    0,
+    'Session creation must not acknowledge an in-flight policy update',
+  );
   diagnostic.event({ type: 'session.updated' });
   diagnostic.rtp(20, 1000);
   diagnostic.rtp(19, 999);

@@ -326,8 +326,8 @@ export async function runServer({
       }
       if (error instanceof RealtimeRequestError) {
         const diagnostic = new RealtimeDiagnostics('openai');
-        diagnostic.sent('session.update');
-        diagnostic.fault(error.fault, true);
+        // HTTP call creation is not a session.update event or its rejection.
+        diagnostic.fault(error.fault);
         diagnostic.close('protocol_error');
         diagnosticStore.save(diagnostic.snapshot());
         send(res, 502, {

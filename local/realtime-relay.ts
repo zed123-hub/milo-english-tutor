@@ -247,7 +247,9 @@ export class RealtimeRelay {
         diagnostics.errorSource === 'upstream_close'
           ? 'upstream_close'
           : diagnostics.errorSource === 'upstream_socket' ||
-              diagnostics.error?.code === 'REALTIME_CONNECTION'
+              ['REALTIME_CONNECTION', 'REALTIME_BACKPRESSURE'].includes(
+                diagnostics.error?.code ?? '',
+              )
             ? 'transport_error'
             : diagnostics.error
               ? 'protocol_error'

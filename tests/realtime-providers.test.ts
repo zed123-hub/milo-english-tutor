@@ -26,6 +26,7 @@ import {
   realtimeFault,
   realtimeErrorMessage,
 } from '../lib/coach/realtime-errors';
+import type { RealtimeDiagnostic } from '../lib/coach/realtime-diagnostics';
 
 void test('realtime output: congestion drains in order and close discards queued work', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
@@ -156,12 +157,15 @@ void test('GLM client VAD: silence and brief noise do not call the model; a spok
     0,
   );
   input.push('silence', 0, 100);
-  assert.deepEqual(
-    sent.slice(-2).map((e) => e.type),
-    ['input_audio_buffer.commit', 'response.create'],
-  );
+  assert.equal(sent.at(-1)?.type, 'input_audio_buffer.commit');
+  assert.equal(sent.filter((e) => e.type === 'response.create').length, 0);
   assert.equal(speech[1].type, 'input_audio_buffer.speech_stopped');
   assert.equal(speech[0].item_id, speech[1].item_id);
+  input.accept({
+    type: 'input_audio_buffer.committed',
+    item_id: 'upstream-first',
+  });
+  assert.equal(sent.filter((e) => e.type === 'response.create').length, 1);
   for (let i = 0; i < 280; i++) input.push('long-speech', 0.03, 100);
   assert.equal(
     sent.filter((e) => e.type === 'input_audio_buffer.commit').length,
@@ -173,16 +177,85 @@ void test('GLM client VAD: silence and brief noise do not call the model; a spok
     'Long speech is segmented without interrupting the learner with a reply',
   );
   for (let i = 0; i < 12; i++) input.push('silence', 0, 100);
+  assert.equal(
+    sent.filter((e) => e.type === 'response.create').length,
+    1,
+    'Final silence still waits for the segmented commit acknowledgement',
+  );
+  input.accept({
+    type: 'input_audio_buffer.committed',
+    item_id: 'upstream-second',
+  });
+  assert.equal(sent.filter((e) => e.type === 'response.create').length, 2);
+  input.accept({
+    type: 'input_audio_buffer.committed',
+    item_id: 'upstream-second',
+  });
   assert.equal(sent.filter((e) => e.type === 'response.create').length, 2);
   input.clear();
 });
 
+void test('GLM client VAD: acknowledged long segments wait for final silence and respond once', () => {
+  const sent: { type: string }[] = [];
+  const input = new GLMInput(
+    (event) => sent.push(event as { type: string }),
+    () => {},
+    () => sent.push({ type: 'response.create' }),
+  );
+  for (let i = 0; i < 280; i++) input.push('long-one', 0.03, 100);
+  input.accept({
+    type: 'input_audio_buffer.committed',
+    item_id: 'long-upstream-one',
+  });
+  assert.equal(sent.filter((e) => e.type === 'response.create').length, 0);
+  for (let i = 0; i < 280; i++) input.push('long-two', 0.03, 100);
+  input.accept({
+    type: 'input_audio_buffer.committed',
+    item_id: 'long-upstream-two',
+  });
+  assert.equal(sent.filter((e) => e.type === 'response.create').length, 0);
+  for (let i = 0; i < 12; i++) input.push('silence', 0, 100);
+  assert.equal(sent.filter((e) => e.type === 'response.create').length, 1);
+  input.accept({
+    type: 'input_audio_buffer.committed',
+    item_id: 'long-upstream-two',
+  });
+  assert.equal(sent.filter((e) => e.type === 'response.create').length, 1);
+});
+
+void test('GLM client VAD: a late acknowledgement cannot answer while the next utterance is active', () => {
+  const sent: { type: string }[] = [];
+  const input = new GLMInput(
+    (event) => sent.push(event as { type: string }),
+    () => {},
+    () => sent.push({ type: 'response.create' }),
+  );
+  input.push('first-one', 0.03, 100);
+  input.push('first-two', 0.03, 100);
+  for (let i = 0; i < 12; i++) input.push('silence', 0, 100);
+  input.push('second-one', 0.03, 100);
+  input.push('second-two', 0.03, 100);
+  input.accept({
+    type: 'input_audio_buffer.committed',
+    item_id: 'late-first',
+  });
+  assert.equal(sent.filter((e) => e.type === 'response.create').length, 0);
+  for (let i = 0; i < 12; i++) input.push('silence', 0, 100);
+  assert.equal(sent.filter((e) => e.type === 'response.create').length, 0);
+  input.accept({
+    type: 'input_audio_buffer.committed',
+    item_id: 'second-final',
+  });
+  assert.equal(sent.filter((e) => e.type === 'response.create').length, 1);
+});
+
 void test('GLM client VAD: early transcription keeps the local speech identity and hint timing', () => {
   const speech: { item_id?: string }[] = [];
+  let responses = 0;
   const input = new GLMInput(
     () => {},
     (event) => speech.push(event),
-    () => {},
+    () => responses++,
   );
   input.push('one', 0.03, 100);
   input.push('two', 0.03, 100);
@@ -193,16 +266,23 @@ void test('GLM client VAD: early transcription keeps the local speech identity a
     transcript: 'I enjoy learning English.',
   };
   assert.deepEqual(input.accept(transcription), []);
+  assert.equal(responses, 0);
   const delivered = input.accept({
     type: 'input_audio_buffer.committed',
     item_id: 'upstream-one',
   });
   assert.equal(delivered.length, 2);
+  assert.equal(responses, 1);
   assert.ok(delivered.every((event) => event.item_id === speech[0].item_id));
   assert.equal(input.accept(transcription)[0].item_id, speech[0].item_id);
+  input.accept({
+    type: 'input_audio_buffer.committed',
+    item_id: 'upstream-one',
+  });
+  assert.equal(responses, 1);
 });
 
-void test('GLM client VAD: pause commits the last spoken audio once without generating more speech', () => {
+void test('GLM client VAD: pause and clear revoke replies waiting on late acknowledgements', () => {
   const sent: { type: string }[] = [];
   const input = new GLMInput(
     (event) => sent.push(event as { type: string }),
@@ -217,6 +297,26 @@ void test('GLM client VAD: pause commits the last spoken audio once without gene
     sent.filter((e) => e.type === 'input_audio_buffer.commit').length,
     1,
   );
+  input.accept({
+    type: 'input_audio_buffer.committed',
+    item_id: 'paused-input',
+  });
+  assert.equal(sent.filter((e) => e.type === 'response.create').length, 0);
+  input.push('next-one', 0.03, 100);
+  input.push('next-two', 0.03, 100);
+  for (let i = 0; i < 12; i++) input.push('silence', 0, 100);
+  input.clear();
+  input.accept({
+    type: 'input_audio_buffer.committed',
+    item_id: 'cleared-input',
+  });
+  assert.equal(sent.filter((e) => e.type === 'response.create').length, 0);
+  for (let i = 0; i < 280; i++) input.push('long-before-pause', 0.03, 100);
+  input.finish();
+  input.accept({
+    type: 'input_audio_buffer.committed',
+    item_id: 'paused-long-segment',
+  });
   assert.equal(sent.filter((e) => e.type === 'response.create').length, 0);
 });
 
@@ -659,20 +759,25 @@ for (const provider of ['qwen', 'glm'] as RealtimeProvider[])
     });
     const server = createServer();
     let congested = false;
-    const relay = new RealtimeRelay(service, (_url, key) => {
-      const socket = new WebSocket(`ws://127.0.0.1:${remotePort}`, {
-        headers: { Authorization: `Bearer ${key}` },
-      });
-      Object.defineProperty(socket, 'bufferedAmount', {
-        get: () =>
-          congested
-            ? 256001
-            : Number(
-                Reflect.get(WebSocket.prototype, 'bufferedAmount', socket),
-              ),
-      });
-      return socket;
-    });
+    const savedDiagnostics: RealtimeDiagnostic[] = [];
+    const relay = new RealtimeRelay(
+      service,
+      (_url, key) => {
+        const socket = new WebSocket(`ws://127.0.0.1:${remotePort}`, {
+          headers: { Authorization: `Bearer ${key}` },
+        });
+        Object.defineProperty(socket, 'bufferedAmount', {
+          get: () =>
+            congested
+              ? 256001
+              : Number(
+                  Reflect.get(WebSocket.prototype, 'bufferedAmount', socket),
+                ),
+        });
+        return socket;
+      },
+      (report) => savedDiagnostics.push(report),
+    );
     relay.attach(server);
     server.listen(0, '127.0.0.1');
     await once(server, 'listening');
@@ -747,16 +852,18 @@ for (const provider of ['qwen', 'glm'] as RealtimeProvider[])
             ),
           }),
         );
-      await until(() => received.some((e) => e.type === 'response.create'));
+      await until(() =>
+        received.some((e) => e.type === 'input_audio_buffer.commit'),
+      );
       assert.ok(
         messages.some((e) => e.type === 'input_audio_buffer.speech_started'),
       );
       assert.ok(
         messages.some((e) => e.type === 'input_audio_buffer.speech_stopped'),
       );
-      assert.ok(
-        received.findIndex((e) => e.type === 'response.create') >
-          received.findIndex((e) => e.type === 'input_audio_buffer.commit'),
+      assert.equal(
+        received.filter((e) => e.type === 'response.create').length,
+        0,
       );
       remoteSocket!.send(
         JSON.stringify({
@@ -770,6 +877,11 @@ for (const provider of ['qwen', 'glm'] as RealtimeProvider[])
           type: 'input_audio_buffer.committed',
           item_id: 'input-one',
         }),
+      );
+      await until(() => received.some((e) => e.type === 'response.create'));
+      assert.ok(
+        received.findIndex((e) => e.type === 'response.create') >
+          received.findIndex((e) => e.type === 'input_audio_buffer.commit'),
       );
       await until(() =>
         messages.some(
@@ -1063,6 +1175,12 @@ for (const provider of ['qwen', 'glm'] as RealtimeProvider[])
         );
         assert.equal(relay.status()?.localStage, scenario.stage);
         assert.equal(relay.status()?.errorSource, 'local');
+        assert.equal(
+          savedDiagnostics.at(-1)?.closeCategory,
+          scenario.code === 'REALTIME_BACKPRESSURE'
+            ? 'transport_error'
+            : 'protocol_error',
+        );
         assert.doesNotMatch(
           JSON.stringify(relay.status()),
           /fixture-private-key/,
