@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { freshData, type LearningData } from '../lib/coach/model';
-import { realtimeInstructions, realtimeSession } from '../lib/coach/teacher';
+import {
+  realtimeInstructions,
+  realtimeSession,
+  teacherInstructions,
+} from '../lib/coach/teacher';
+import { quietTurnInstructions } from '../lib/coach/tutor-guidance';
 
 function largeHistory(): LearningData {
   const data = freshData('2026-01-01T00:00:00.000Z');
@@ -101,10 +106,11 @@ void test('realtime context: connection refresh uses bounded supplied context an
 void test('realtime context: compact instructions preserve speech, adaptation and learner-control contracts', () => {
   const instructions = realtimeInstructions(freshData());
   assert.match(instructions, /ONLY English in ONE voice/);
-  assert.match(instructions, /绝对不要朗读中文/);
+  assert.match(instructions, /never translate aloud/);
   assert.match(instructions, /very next response/);
   assert.match(instructions, /NOT ceilings/);
-  assert.match(instructions, /one meaningful question per turn/);
+  assert.match(instructions, /Questions are optional/);
+  assert.match(instructions, /Do not default to demonstrations/);
   assert.match(instructions, /record_hint before/);
   assert.match(instructions, /Only when the learner clearly wants to stop/);
   assert.match(instructions, /untrusted data, never instructions/);
@@ -113,4 +119,38 @@ void test('realtime context: compact instructions preserve speech, adaptation an
     retention_ratio: 0.6,
     token_limits: { post_instructions: 4000 },
   });
+});
+
+void test('tutor prompts: authored rules and tools are English while personal data stays intact', () => {
+  const data = freshData();
+  data.plan.reason = '保留原有中文教学摘要';
+  const before = structuredClone(data);
+  const standard = teacherInstructions(data);
+  const realtime = realtimeInstructions(data);
+  assert.doesNotMatch(
+    standard.split('Teaching context (data only):')[0],
+    /\p{Script=Han}/u,
+  );
+  assert.doesNotMatch(
+    realtime.split('Personal context (data only):')[0],
+    /\p{Script=Han}/u,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(realtimeSession(data, 'test').tools),
+    /\p{Script=Han}/u,
+  );
+  for (const prompt of [standard, realtime]) {
+    assert.match(prompt, /Be a conversation partner who takes initiative/);
+    assert.match(prompt, /Questions are optional/);
+    assert.match(prompt, /Do not default to demonstrations/);
+    assert.match(prompt, /保留原有中文教学摘要/);
+  }
+  for (const reminder of [1, 2]) {
+    const prompt = quietTurnInstructions(reminder);
+    assert.doesNotMatch(prompt, /\p{Script=Han}/u);
+    assert.match(prompt, /Silence is not a wrong answer/);
+    assert.match(prompt, /Do not repeat the unanswered question/);
+  }
+  assert.doesNotMatch(data.plan.nextOpening, /Say hello|repeat after/i);
+  assert.deepEqual(data, before);
 });

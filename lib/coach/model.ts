@@ -105,7 +105,8 @@ export function freshData(at = new Date().toISOString()): LearningData {
       difficulty: initialDifficulty(at),
       focus: '先用一句真实的问候认识彼此',
       reason: '还没有实际听说证据，先从轻松交流开始。',
-      nextOpening: 'Hi, I’m Milo. Let’s speak English together. Say hello!',
+      nextOpening:
+        'Start an everyday conversation with a concrete remark, not an exercise.',
       review: [],
       suggestedMinutes: 5,
       updatedAt: at,

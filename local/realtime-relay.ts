@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, Server } from 'node:http';
 import WebSocket, { WebSocketServer, type RawData } from 'ws';
 import { realtimeSession } from '../lib/coach/teacher';
+import { quietTurnInstructions } from '../lib/coach/tutor-guidance';
 import {
   RealtimeEvents,
   type RealtimeEvent,
@@ -425,7 +426,8 @@ export class RealtimeRelay {
               if (deferredNudge && !quiescent && !hasSpeech) {
                 update(
                   instructions(false, true).instructions +
-                    '\nBriefly encourage the quiet learner in English and wait.',
+                    '\n' +
+                    quietTurnInstructions(deferredNudge),
                 );
                 lifecycle.requestResponse('nudge');
               }
@@ -661,7 +663,8 @@ export class RealtimeRelay {
           if (event.miloNudge === 1 || event.miloNudge === 2)
             update(
               instructions(false, true).instructions +
-                `\nThe learner has been quiet. Briefly encourage them in English and wait. Do not provide an answer unless asked. Reminder ${event.miloNudge}.`,
+                '\n' +
+                quietTurnInstructions(event.miloNudge),
             );
           stage = 'upstream_send';
           lifecycle.requestResponse(

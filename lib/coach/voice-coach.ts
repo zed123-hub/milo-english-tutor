@@ -1,4 +1,5 @@
 import { effectiveDifficulty } from './learning-engine';
+import { quietTurnInstructions } from './tutor-guidance';
 import { PCMRealtime } from './pcm-realtime';
 import { OpenAILifecycle } from './openai-lifecycle';
 import { RealtimeDiagnostics } from './realtime-diagnostics';
@@ -662,7 +663,7 @@ export class VoiceCoach {
         type: 'response.create',
         ...(this.pcm ? { miloNudge: this.idleCount } : {}),
         response: {
-          instructions: `Speak only English, never Chinese. 学生沉默了一会儿。当前第${this.idleCount}次提醒：第一次只说一句轻微鼓励，继续等待，不示范答案；第二次给方向或关键词，继续留学生自己表达的空间。给提示前先调用record_hint，不把沉默当成错误。`,
+          instructions: quietTurnInstructions(this.idleCount),
         },
       });
       this.status('thinking');
@@ -1244,7 +1245,11 @@ export class VoiceCoach {
         await this.stop();
         return true;
       }
-      output = { ok: false, reason: '学生没有明确要求结束，请继续自然交流。' };
+      output = {
+        ok: false,
+        reason:
+          'The learner has not clearly asked to stop. Continue the conversation naturally.',
+      };
     }
     if (!this.alive) return true;
     this.send({

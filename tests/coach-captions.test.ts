@@ -289,7 +289,8 @@ void test('voice: model English constraint wins over mixed legacy opening and in
   const data = freshData();
   data.plan.nextOpening = '你好，跟我读 Hello';
   const instructions = realtimeSession(data, 'test-model').instructions;
-  assert.match(instructions, /绝对不要朗读中文/);
+  assert.match(instructions, /Speak ONLY English in ONE voice/);
+  assert.match(instructions, /Old plans\/openings are background, not scripts/);
   assert.ok(!instructions.includes('开场可以参考：你好'));
   const oldFetch = globalThis.fetch;
   t.after(() => {

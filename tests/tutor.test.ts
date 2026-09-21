@@ -19,6 +19,7 @@ import { realtimeConfig } from '../lib/tutor/realtime-config';
 import { evaluateAnswer } from '../lib/tutor/evaluator';
 import { defaultConfig } from '../lib/providers';
 import { readBody, safeError } from '../lib/tutor/http';
+import { POST as tutorPOST } from '../app/api/tutor/route';
 
 function evidence(patch: Partial<Evidence> = {}): Evidence {
   return {
@@ -200,11 +201,15 @@ void test('fallback accepts clear requests but defers ambiguous, negative and in
     );
 });
 void test('model evaluator accepts alternatives but cannot fabricate used items or stages', async (t) => {
+  let submittedSystem = '';
   t.mock.method(
     globalThis,
     'fetch',
-    async () =>
-      new Response(
+    async (_url: unknown, init?: RequestInit) => {
+      const body = init?.body;
+      assert.ok(typeof body === 'string');
+      submittedSystem = JSON.parse(body).messages[0].content;
+      return new Response(
         JSON.stringify({
           choices: [
             {
@@ -219,7 +224,8 @@ void test('model evaluator accepts alternatives but cannot fabricate used items 
             },
           ],
         }),
-      ),
+      );
+    },
   );
   const result = await evaluateAnswer(
     getTask('coffee-simple'),
@@ -230,6 +236,15 @@ void test('model evaluator accepts alternatives but cannot fabricate used items 
   assert.equal(result.outcome, 'pass');
   assert.deepEqual(result.verifiedItems, ['please']);
   assert.equal('stage' in result, false);
+  const referenceStart = submittedSystem.indexOf('{"kind"');
+  assert.ok(referenceStart > 0);
+  assert.doesNotMatch(
+    submittedSystem.slice(0, referenceStart),
+    /[\u3400-\u9fff]/,
+  );
+  const reference = JSON.parse(submittedSystem.slice(referenceStart));
+  assert.equal(reference.intent, getTask('coffee-simple').intent);
+  assert.equal(result.feedback, '点单意思清楚。');
 });
 void test('a malformed model response does not silently fall back or save a grade', async (t) => {
   t.mock.method(
@@ -287,6 +302,60 @@ void test('realtime executes tools only after a completed response and keeps aud
   const config = realtimeConfig(state, 'gpt-realtime-mini');
   assert.deepEqual(config.output_modalities, ['audio']);
   assert.equal(config.audio.input.turn_detection.interrupt_response, true);
+  const referenceStart = config.instructions.indexOf('{"profile"');
+  assert.ok(referenceStart > 0);
+  assert.doesNotMatch(
+    config.instructions.slice(0, referenceStart),
+    /[\u3400-\u9fff]/,
+  );
+  for (const tool of config.tools)
+    assert.doesNotMatch(tool.description, /[\u3400-\u9fff]/);
+});
+void test('legacy text tutor sends English instructions with course translations only as reference data', async (t) => {
+  let submittedSystem = '';
+  t.mock.method(
+    globalThis,
+    'fetch',
+    async (_url: unknown, init?: RequestInit) => {
+      const body = init?.body;
+      assert.ok(typeof body === 'string');
+      submittedSystem = JSON.parse(body).messages[0].content;
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content:
+                  'The cafe is busy today. I found us a table by the window.',
+              },
+            },
+          ],
+        }),
+      );
+    },
+  );
+  const response = await tutorPOST(
+    new Request('https://milo.test/api/tutor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        config: defaultConfig,
+        apiKey: 'test-only-key',
+        messages: [{ role: 'user', content: 'Hello.' }],
+        lessonId: 0,
+      }),
+    }),
+  );
+  assert.equal(response.status, 200);
+  const referenceStart = submittedSystem.indexOf('{"lesson"');
+  assert.ok(referenceStart > 0);
+  assert.doesNotMatch(
+    submittedSystem.slice(0, referenceStart),
+    /[\u3400-\u9fff]/,
+  );
+  const reference = JSON.parse(submittedSystem.slice(referenceStart));
+  assert.match(reference.lesson.phrases[0].meaning, /[\u3400-\u9fff]/);
+  assert.deepEqual(reference.learner.needsPractice, []);
 });
 void test('HTTP parsing is bounded and malformed JSON returns a client error', async () => {
   await assert.rejects(

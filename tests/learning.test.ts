@@ -277,14 +277,22 @@ void test('proxy sends a server-owned tutor prompt and current phrase context wi
       typeof init?.body === 'string' ? init.body : 'null',
     );
     assert.equal(sent.messages[0].role, 'system');
-    assert.match(sent.messages[0].content, /当前练习：Bye/);
-    assert.match(sent.messages[0].content, /需要再练的表达：Hello/);
+    const system = sent.messages[0].content as string;
+    const referenceStart = system.indexOf('{"lesson"');
+    assert.ok(referenceStart > 0);
+    assert.doesNotMatch(system.slice(0, referenceStart), /[\u3400-\u9fff]/);
+    const reference = JSON.parse(system.slice(referenceStart));
+    assert.equal(reference.learner.activePhrase.english, 'Bye.');
+    assert.deepEqual(reference.learner.needsPractice, ['Hello.']);
     assert.equal(init?.redirect, 'error');
     assert.deepEqual(sent.thinking, { type: 'disabled' });
     return new Response(
       JSON.stringify({
         choices: [
-          { message: { content: '现在试着说 Bye。' }, finish_reason: 'stop' },
+          {
+            message: { content: "I'm heading home now. Bye!" },
+            finish_reason: 'stop',
+          },
         ],
       }),
       { status: 200 },
@@ -295,7 +303,7 @@ void test('proxy sends a server-owned tutor prompt and current phrase context wi
   assert.equal(result.headers.get('Cache-Control'), 'no-store');
   assert.equal(
     ((await result.json()) as { content: string }).content,
-    '现在试着说 Bye。',
+    "I'm heading home now. Bye!",
   );
 });
 void test('authentication and quota failures never echo upstream secrets', async (t) => {
