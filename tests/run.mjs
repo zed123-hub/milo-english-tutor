@@ -8,7 +8,7 @@ try {
   await build({
     stdin: {
       contents:
-        "import './tests/learning.test.ts'; import './tests/tutor.test.ts'; import './tests/tutor-api.test.ts'; import './tests/local-coach.test.ts'; import './tests/coach-captions.test.ts'; import './tests/coach-analysis.test.ts'; import './tests/coach-realtime.test.ts'; import './tests/realtime-providers.test.ts'; import './tests/realtime-lifecycle.test.ts'; import './tests/realtime-tool-arguments.test.ts'; import './tests/realtime-usage.test.ts'; import './tests/realtime-context.test.ts'; import './tests/realtime-refresh.test.ts'; import './tests/realtime-rotation.test.ts';",
+        "import './tests/learning.test.ts'; import './tests/tutor.test.ts'; import './tests/tutor-api.test.ts'; import './tests/local-coach.test.ts'; import './tests/coach-captions.test.ts'; import './tests/coach-analysis.test.ts'; import './tests/coach-realtime.test.ts'; import './tests/coach-startup.test.ts'; import './tests/realtime-providers.test.ts'; import './tests/realtime-lifecycle.test.ts'; import './tests/realtime-tool-arguments.test.ts'; import './tests/realtime-usage.test.ts'; import './tests/realtime-context.test.ts'; import './tests/realtime-refresh.test.ts'; import './tests/realtime-rotation.test.ts';",
       resolveDir: process.cwd(),
     },
     outfile: join(dir, 'tests.mjs'),

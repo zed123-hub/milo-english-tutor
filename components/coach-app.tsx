@@ -617,6 +617,8 @@ export default function CoachApp() {
   }
   const labels: Record<string, string> = {
     idle: '准备好，我们就开始',
+    microphone: '等待麦克风授权，请留意浏览器提示',
+    audio: '正在准备声音播放',
     connecting: '正在接通你的导师',
     saving: '语音已暂停，正在保存这次交流',
     listening: '我在听，你慢慢说',

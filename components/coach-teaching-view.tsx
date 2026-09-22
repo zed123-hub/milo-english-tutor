@@ -35,9 +35,14 @@ export function CoachTeachingView({
   const memory = data.memories
     .filter((m) => m.sessionId === data.activeSessionId)
     .at(-1);
-  const live = ['listening', 'thinking', 'speaking', 'connecting'].includes(
-    status,
-  );
+  const live = [
+    'listening',
+    'thinking',
+    'speaking',
+    'connecting',
+    'microphone',
+    'audio',
+  ].includes(status);
   const stages = [
     { id: 'listening', text: '听你表达' },
     { id: 'thinking', text: '调整带法' },

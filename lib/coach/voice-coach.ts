@@ -48,6 +48,63 @@ type Callbacks = {
   error: (s: string) => void;
   message: (s: string) => void;
 };
+
+// Browser media promises may never settle. Cancellation must also release a
+// microphone that arrives after the caller has already stopped or timed out.
+function waitForMedia<T>(
+  pending: Promise<T>,
+  signal: AbortSignal,
+  timeoutMs: number,
+  timeoutMessage: string,
+  releaseLate?: (value: T) => void,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', cancel);
+    };
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const cancel = () => fail(new Error('语音启动已取消。'));
+    const timer = setTimeout(() => fail(new Error(timeoutMessage)), timeoutMs);
+    pending.then((value) => {
+      if (settled) {
+        releaseLate?.(value);
+        return;
+      }
+      settled = true;
+      cleanup();
+      resolve(value);
+    }, fail);
+    signal.addEventListener('abort', cancel, { once: true });
+    if (signal.aborted) cancel();
+  });
+}
+
+function microphoneError(error: unknown): Error {
+  const name = error instanceof Error ? error.name : '';
+  if (name === 'NotAllowedError' || name === 'SecurityError')
+    return Error(
+      '麦克风权限被拒绝。请在浏览器地址栏和系统设置中允许麦克风，再点击开始。',
+    );
+  if (name === 'NotFoundError' || name === 'OverconstrainedError')
+    return Error(
+      '未检测到可用麦克风。请连接麦克风，并在浏览器中选择正确的输入设备后重试。',
+    );
+  if (name === 'NotReadableError' || name === 'AbortError')
+    return Error(
+      '无法读取麦克风。请关闭可能占用麦克风的其他应用，检查系统输入设备后重试。',
+    );
+  return Error(
+    '麦克风启动失败。请检查浏览器和系统的麦克风权限，刷新页面后重试。',
+  );
+}
+
 /** One connection owns its media and callbacks. A stopped connection can never restart itself. */
 export class VoiceCoach {
   private alive = false;
@@ -151,27 +208,63 @@ export class VoiceCoach {
         );
       if (mode === 'audio' && !window.MediaRecorder)
         throw Error('当前浏览器不支持录音，请使用新版 Chrome。');
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-      if (!this.alive) {
-        stream.getTracks().forEach((t) => t.stop());
-        return;
-      }
-      this.stream = stream;
-      // Create/resume within the start gesture as early as possible for audio autoplay policies.
+      // Request audio playback synchronously inside the user's click, before
+      // microphone permission can consume the browser's user activation.
+      let audioReady: Promise<boolean> | undefined;
       if (
         mode === 'audio' ||
         (mode === 'realtime' &&
           (this.client.settings?.realtimeProvider ?? 'openai') !== 'openai')
       ) {
+        if (typeof AudioContext === 'undefined')
+          throw Error('当前浏览器不支持实时声音播放，请使用新版 Chrome。');
         this.context = new AudioContext();
-        await this.context.resume();
+        // Handle rejection immediately, even while microphone permission is pending.
+        audioReady = this.context.resume().then(
+          () => true,
+          () => false,
+        );
       }
+      this.status('microphone');
+      const stream = await waitForMedia(
+        navigator.mediaDevices
+          .getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          })
+          .catch((error: unknown) => {
+            throw microphoneError(error);
+          }),
+        this.controller.signal,
+        30000,
+        '麦克风授权一直没有返回。请在浏览器地址栏允许麦克风，并检查系统麦克风权限；内嵌预览没有弹窗时，请用 Chrome 打开当前地址后重试。',
+        (lateStream) => lateStream.getTracks().forEach((track) => track.stop()),
+      );
+      if (!this.alive || this.stopping) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      this.stream = stream;
+      if (audioReady) {
+        this.status('audio');
+        const audioError =
+          '浏览器未能启动声音播放。请保持页面在前台，检查声音播放权限，再点击开始；内嵌预览中可改用 Chrome 打开当前地址。';
+        // Give playback its own timeout after microphone permission returns.
+        if (
+          !(await waitForMedia(
+            audioReady,
+            this.controller.signal,
+            8000,
+            audioError,
+          ))
+        )
+          throw Error(audioError);
+      }
+      if (!this.alive || this.stopping) return;
+      this.status('connecting');
       this.audio = new Audio();
       this.audio.autoplay = true;
       this.audio.volume = 1;
