@@ -3,6 +3,7 @@ import {
   skillProgress,
   type Difficulty,
 } from './learning-engine';
+import type { LiveCorrection } from './live-correction';
 export type VoiceSource = 'realtime' | 'asr' | 'browser-speech' | 'legacy-text';
 export type Turn = {
   id: string;
@@ -15,6 +16,7 @@ export type Turn = {
   hint: number;
   played: boolean;
   assessed: boolean;
+  liveCorrection?: LiveCorrection;
   observation?: {
     observedAt?: string;
     outcome: 'success' | 'uncertain' | 'needs_support';

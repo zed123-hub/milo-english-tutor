@@ -41,8 +41,13 @@ export async function callModel(
   key: string,
   messages: { role: 'system' | 'user' | 'assistant'; content: string }[],
   signal?: AbortSignal,
+  maxOutputTokens?: number,
 ) {
   let res: Response;
+  const modelOptions = requestOptions(config);
+  const limitKey = Object.hasOwn(modelOptions, 'max_completion_tokens')
+    ? 'max_completion_tokens'
+    : 'max_tokens';
   try {
     res = await fetch(
       validateEndpoint(config, process.env.ALLOWED_API_HOSTS ?? ''),
@@ -57,7 +62,15 @@ export async function callModel(
           model: config.model,
           messages,
           stream: false,
-          ...requestOptions(config),
+          ...modelOptions,
+          ...(maxOutputTokens
+            ? {
+                [limitKey]: Math.max(
+                  64,
+                  Math.min(512, Math.floor(maxOutputTokens)),
+                ),
+              }
+            : {}),
         }),
         signal: signal
           ? AbortSignal.any([signal, AbortSignal.timeout(45000)])

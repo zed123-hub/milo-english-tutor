@@ -66,6 +66,41 @@ export function validateSubtitlePairs(
   if (compact(pairs.map((p) => p.english).join(' ')) !== compact(text)) return;
   return pairs;
 }
+export function subtitleSourceSegments(text: string) {
+  return text
+    .trim()
+    .split(/(?<=[.!?;,])\s+/)
+    .filter(Boolean);
+}
+export function translatedSubtitlePairs(
+  value: unknown,
+  text: string,
+): SubtitlePair[] | undefined {
+  if (!Array.isArray(value) || !value.length || value.length > 40) return;
+  const chinese = value.map((item) =>
+    typeof item === 'string' ? item : item?.chinese,
+  );
+  if (
+    chinese.some(
+      (line) =>
+        typeof line !== 'string' ||
+        !/[\u3400-\u9fff]/.test(line) ||
+        line.length > 250,
+    )
+  )
+    return;
+  const source = subtitleSourceSegments(text);
+  const english = source.length === chinese.length ? source : [text.trim()];
+  const translations =
+    source.length === chinese.length ? chinese : [chinese.join('')];
+  return validateSubtitlePairs(
+    english.map((segment, index) => ({
+      english: segment,
+      chinese: translations[index],
+    })),
+    text,
+  );
+}
 export function captionReducer(
   cues: CaptionCue[],
   event: CaptionEvent,

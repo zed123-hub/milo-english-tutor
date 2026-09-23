@@ -718,6 +718,50 @@
   width: 18px;
   height: 18px;
 }
+.c-live-correction {
+  width: min(480px, calc(100% - 36px));
+  margin: 18px auto 0;
+  padding: 13px 17px;
+  border: 1px solid #cfddf4;
+  border-radius: 14px;
+  background: #f1f6ff;
+  box-shadow: 0 12px 30px #1e416b12;
+  text-align: left;
+  animation: c-correction-arrive 240ms ease-out;
+}
+.c-live-correction > span {
+  color: #7189aa;
+  font-size: 0.76rem;
+}
+.c-live-correction p {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 14px;
+  margin: 4px 0 1px;
+  font-size: 0.98rem;
+}
+.c-live-correction s {
+  color: #8c9bb0;
+}
+.c-live-correction strong {
+  color: #2759c9;
+  font-weight: 600;
+}
+.c-live-correction small {
+  color: #7186a2;
+  font-size: 0.8rem;
+}
+@keyframes c-correction-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 .c-caption-dock {
   position: fixed;
   left: var(--sidebar-width, 235px);
@@ -913,6 +957,24 @@
 .c-teaching-step > small {
   font-size: 0.75rem;
   color: #9cabc0;
+}
+.c-correction-pair {
+  padding: 10px 0;
+  border-bottom: 1px solid #e4ebf6;
+}
+.c-correction-pair p {
+  margin: 3px 0;
+  color: #34527c;
+}
+.c-correction-pair p small {
+  display: inline-block;
+  min-width: 4em;
+  color: #91a4bf;
+  font-size: 0.78rem;
+}
+.c-correction-pair > span {
+  color: #6e85a2;
+  font-size: 0.82rem;
 }
 .c-teaching-footer {
   padding: 18px 28px 26px;

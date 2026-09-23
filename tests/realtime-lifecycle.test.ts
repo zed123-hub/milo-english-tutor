@@ -318,6 +318,51 @@ void test('GLM lifecycle: committed input after interrupt waits through complete
   assert.equal(count('response.create'), 2, 'Pause clears input continuation');
 });
 
+void test('GLM lifecycle: initial model-generated opening starts once after accepted config, never on refresh', () => {
+  const sent: Record<string, unknown>[] = [];
+  const config = realtimeConfig({
+    realtimeProvider: 'glm',
+    realtimeModel: 'glm-realtime-air',
+  });
+  const first = new GLMLifecycle(config, 'memory-led opening', [], (event) =>
+    sent.push(event as Record<string, unknown>),
+  );
+  first.accept({ type: 'session.created' });
+  assert.equal(
+    sent.filter((event) => event.type === 'response.create').length,
+    0,
+  );
+  first.accept({ type: 'session.updated' });
+  first.accept({ type: 'session.updated' });
+  assert.equal(
+    sent.filter((event) => event.type === 'response.create').length,
+    1,
+  );
+  assert.equal(
+    (
+      sent[0].session as {
+        beta_fields: { greeting_config: { enable: boolean } };
+      }
+    ).beta_fields.greeting_config.enable,
+    false,
+  );
+  first.close();
+  const refresh: Record<string, unknown>[] = [];
+  const continuing = new GLMLifecycle(
+    config,
+    'continuing conversation',
+    [],
+    (event) => refresh.push(event as Record<string, unknown>),
+    false,
+  );
+  continuing.accept({ type: 'session.created' });
+  continuing.accept({ type: 'session.updated' });
+  assert.equal(
+    refresh.filter((event) => event.type === 'response.create').length,
+    0,
+  );
+});
+
 void test('GLM queue: recovered audio remains paced below 50 events per second', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   let now = 0;

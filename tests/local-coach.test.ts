@@ -735,7 +735,7 @@ void test('local: subtitles translate only the saved teacher speech, reuse one r
         {
           message: {
             content: JSON.stringify([
-              { english: 'Hello there.', chinese: '你好。' },
+              { english: 'Hello there!', chinese: '你好。' },
               { english: 'How are you?', chinese: '你好吗？' },
             ]),
           },
@@ -751,8 +751,13 @@ void test('local: subtitles translate only the saved teacher speech, reuse one r
     service.subtitles('teacher-line', epoch),
   ]);
   assert.deepEqual(a, b);
+  assert.deepEqual(a.subtitles, [
+    { english: 'Hello there.', chinese: '你好。' },
+    { english: 'How are you?', chinese: '你好吗？' },
+  ]);
   assert.equal(requests, 1);
-  assert.ok(bodies[0].includes('Hello there. How are you?'));
+  assert.ok(bodies[0].includes('Hello there.'));
+  assert.ok(bodies[0].includes('How are you?'));
   assert.ok(!bodies[0].includes('test-voice-key'));
   assert.ok(!bodies[0].includes('I like music'));
   await assert.rejects(

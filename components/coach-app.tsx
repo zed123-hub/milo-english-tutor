@@ -456,7 +456,7 @@ function ModelSettings({
         configured={value?.evaluatorKeyConfigured}
       />
       <p className="c-muted">
-        对话结束后整理真实表现、更新记忆和下一次的带法。两种职责可以选不同模型；服务地址相同时，分析
+        对话中可并行提示明显的用法问题，结束后整理真实表现、更新记忆和下一次的带法。两种职责可以选不同模型；服务地址相同时，分析
         Key 留空可共用对话 Key。整理期间可以继续说英语。
       </p>
       <p className="c-privacy">
@@ -486,6 +486,9 @@ export default function CoachApp() {
   const [captionMode, setCaptionMode] = useState<CaptionMode>('off');
   const [captions, setCaptions] = useState<CaptionCue[]>([]);
   const [teachingOpen, setTeachingOpen] = useState(false);
+  const [dismissedCorrectionId, setDismissedCorrectionId] = useState<
+    string | null
+  >(null);
   const dispatchCaption = useCallback(
     (event: CaptionEvent) =>
       setCaptions((current) => captionReducer(current, event)),
@@ -523,7 +526,7 @@ export default function CoachApp() {
   );
   const pendingAnalyses = data.analyses.filter((j) => j.status !== 'complete');
   useEffect(() => {
-    if (!pendingAnalyses.length) return;
+    if (!pendingAnalyses.length && !data.activeSessionId) return;
     let cancelled = false;
     const timer = setInterval(() => {
       if (!cancelled) void client.load().catch(() => {});
@@ -532,8 +535,25 @@ export default function CoachApp() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [client, pendingAnalyses.length]);
+  }, [client, pendingAnalyses.length, data.activeSessionId]);
   const active = !['idle', 'paused', 'error'].includes(status);
+  const recentCorrection = data.turns
+    .filter(
+      (turn) =>
+        turn.sessionId === data.activeSessionId &&
+        turn.role === 'user' &&
+        turn.liveCorrection,
+    )
+    .at(-1);
+  const recentCorrectionId = recentCorrection?.id;
+  useEffect(() => {
+    if (!active || !recentCorrectionId) return;
+    const timer = window.setTimeout(
+      () => setDismissedCorrectionId(recentCorrectionId),
+      12000,
+    );
+    return () => window.clearTimeout(timer);
+  }, [active, recentCorrectionId]);
   function navigate(path: string) {
     window.history.pushState({}, '', path);
     setPage(path);
@@ -869,6 +889,21 @@ export default function CoachApp() {
                 教学思路
               </Button>
             </div>
+            {active &&
+              recentCorrection &&
+              recentCorrection.id !== dismissedCorrectionId &&
+              recentCorrection.liveCorrection && (
+                <aside className="c-live-correction">
+                  <span>刚才的表达 · 轻轻调整一下</span>
+                  <p>
+                    <s>{recentCorrection.liveCorrection.original}</s>
+                    <strong>{recentCorrection.liveCorrection.better}</strong>
+                  </p>
+                  {recentCorrection.liveCorrection.note && (
+                    <small>{recentCorrection.liveCorrection.note}</small>
+                  )}
+                </aside>
+              )}
             <p className="c-disclosure">
               {message ||
                 '开始后会申请麦克风权限。Milo 是 AI 导师，声音由模型或系统合成。'}

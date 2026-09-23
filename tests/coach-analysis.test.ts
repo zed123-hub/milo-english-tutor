@@ -149,24 +149,33 @@ void test('analysis: live and analysis requests use independent providers and ke
     source: 'browser-speech',
     seconds: 3,
   });
-  assert.equal(calls.length, 1);
-  assert.match(calls[0].url, /deepseek/);
-  assert.equal(calls[0].authorization, 'Bearer live-only-secret');
+  await service.waitForLiveChecks();
+  const liveCalls = calls.filter((c) => c.url.includes('deepseek'));
+  const liveChecks = calls.filter((c) =>
+    c.body.includes('Silent live English usage check'),
+  );
+  assert.equal(liveCalls.length, 1);
+  assert.equal(liveCalls[0].authorization, 'Bearer live-only-secret');
+  assert.equal(liveChecks.length, 1);
+  assert.match(liveChecks[0].url, /bigmodel/);
+  assert.equal(liveChecks[0].authorization, 'Bearer analysis-only-secret');
   assert.equal(repo.read().data.evidence.length, 0);
   assert.equal(repo.read().data.facts.length, 0);
   await command(service, 'end');
   await service.waitForAnalysis();
   assert.equal(repo.read().data.analyses[0].status, 'complete');
+  assert.equal(calls.filter((c) => c.url.includes('deepseek')).length, 1);
+  assert.equal(calls.filter((c) => c.url.includes('bigmodel')).length, 3);
   assert.ok(
-    calls
-      .slice(1)
-      .every(
-        (c) =>
-          c.url.includes('bigmodel') &&
+    calls.every((c) =>
+      c.url.includes('deepseek')
+        ? c.authorization === 'Bearer live-only-secret'
+        : c.url.includes('bigmodel') &&
           c.authorization === 'Bearer analysis-only-secret',
-      ),
+    ),
   );
-  assert.ok(calls.every((c) => !c.body.includes('-only-secret')));
+  assert.ok(calls.every((c) => !`${c.url}${c.body}`.includes('-only-secret')));
+  assert.ok(!JSON.stringify(repo.read().data).includes('-only-secret'));
   assert.ok(
     !readFileSync(join(directory, 'preferences.json'), 'utf8').includes(
       'secret',

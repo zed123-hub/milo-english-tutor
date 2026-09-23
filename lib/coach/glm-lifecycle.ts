@@ -58,18 +58,11 @@ export class GLMLifecycle {
     }
     return false;
   }
-  private configure(opening: boolean) {
+  private configure() {
     this.connection = 'updating';
     this.updatePending = true;
     this.updates.sent++;
-    this.send(
-      websocketSession(
-        this.config,
-        this.instructions,
-        this.tools,
-        opening ? 'opening' : 'refresh',
-      ),
-    );
+    this.send(websocketSession(this.config, this.instructions, this.tools));
   }
   policy(instructions: string) {
     if (this.finishing || this.connection === 'closed') return;
@@ -90,7 +83,7 @@ export class GLMLifecycle {
     if (this.nextPolicy !== undefined) {
       this.instructions = this.nextPolicy;
       this.nextPolicy = undefined;
-      this.configure(false);
+      this.configure();
     } else if (this.nextResponse) {
       this.nextResponse = false;
       this.response = 'requested';
@@ -122,12 +115,16 @@ export class GLMLifecycle {
       event.type === 'session.created' &&
       this.connection === 'awaiting_session_created'
     )
-      this.configure(this.opening);
+      this.configure();
     else if (event.type === 'session.updated' && this.updatePending) {
+      const initial = !this.configured;
       this.configured = true;
       this.updatePending = false;
       this.connection = 'ready';
       this.updates.accepted++;
+      // With GLM's canned greeting disabled, initiate exactly one model-written
+      // opening after the first accepted session; refreshes never speak first.
+      if (initial && this.opening) this.nextResponse = true;
       this.flush();
     } else if (event.type === 'response.created') {
       const id = event.response_id ?? event.response?.id ?? '';

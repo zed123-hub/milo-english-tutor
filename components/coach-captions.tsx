@@ -32,7 +32,7 @@ export function CoachCaptions({
     for (const line of needed.split('\n')) {
       const [id, turnId] = line.split('|');
       void client
-        .request('subtitles', { turnId, epoch }, AbortSignal.timeout(9000))
+        .request('subtitles', { turnId, epoch }, AbortSignal.timeout(17000))
         .then((result) => {
           if (!cancelled && client.snapshot?.epoch === epoch)
             dispatch({ type: 'translation', id, pairs: result.subtitles });

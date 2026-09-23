@@ -476,10 +476,10 @@ void test('providers: official endpoints, model families and provider-specific s
   assert.ok('input_audio_format' in g && g.input_audio_format === 'pcm24');
   assert.match(
     g.instructions,
-    /Never end consecutive tutor turns with questions/,
+    /never end consecutive tutor turns with questions/i,
   );
-  assert.equal(g.beta_fields.greeting_config.enable, true);
-  assert.doesNotMatch(g.beta_fields.greeting_config.content, /\?/);
+  assert.equal(g.beta_fields.greeting_config.enable, false);
+  assert.equal(g.beta_fields.greeting_config.content, 'Hello.');
   assert.ok('output_audio_format' in g && g.output_audio_format === 'pcm');
   assert.ok(!('input_audio_transcription' in g));
   assert.ok(!('tool_choice' in q));
@@ -880,6 +880,33 @@ for (const provider of ['qwen', 'glm'] as RealtimeProvider[])
       }
     };
     await until(() => messages.some((e) => e.type === 'milo.ready'));
+    if (provider === 'glm') {
+      await until(() => received.some((e) => e.type === 'response.create'));
+      assert.equal(
+        received.filter((e) => e.type === 'response.create').length,
+        1,
+        'The opening is generated after configuration, never supplied as canned speech',
+      );
+      remoteSocket!.send(
+        JSON.stringify({
+          type: 'response.created',
+          response: { id: 'opening', status: 'in_progress' },
+        }),
+      );
+      remoteSocket!.send(
+        JSON.stringify({
+          type: 'response.done',
+          response: { id: 'opening', status: 'completed' },
+        }),
+      );
+      await until(() =>
+        messages.some(
+          (e) =>
+            e.type === 'response.done' &&
+            (e.response as { id?: string })?.id === 'opening',
+        ),
+      );
+    }
     assert.equal(browser.protocol, 'milo-realtime');
     // Browser suspension is not a closed WebSocket. Move the media clock forward
     // without producing audio; the relay must remain available when capture resumes.
@@ -938,7 +965,7 @@ for (const provider of ['qwen', 'glm'] as RealtimeProvider[])
       );
       assert.equal(
         received.filter((e) => e.type === 'response.create').length,
-        0,
+        1,
       );
       remoteSocket!.send(
         JSON.stringify({
@@ -953,9 +980,11 @@ for (const provider of ['qwen', 'glm'] as RealtimeProvider[])
           item_id: 'input-one',
         }),
       );
-      await until(() => received.some((e) => e.type === 'response.create'));
+      await until(
+        () => received.filter((e) => e.type === 'response.create').length === 2,
+      );
       assert.ok(
-        received.findIndex((e) => e.type === 'response.create') >
+        received.findLastIndex((e) => e.type === 'response.create') >
           received.findIndex((e) => e.type === 'input_audio_buffer.commit'),
       );
       await until(() =>
@@ -1120,7 +1149,7 @@ for (const provider of ['qwen', 'glm'] as RealtimeProvider[])
       );
       assert.equal(
         received.filter((e) => e.type === 'response.create').length,
-        1,
+        2,
         'GLM response must wait for the configuration acknowledgment',
       );
       const reminder = received.filter((e) => e.type === 'session.update')[2]
@@ -1131,7 +1160,7 @@ for (const provider of ['qwen', 'glm'] as RealtimeProvider[])
         'client_vad',
       );
       await until(
-        () => received.filter((e) => e.type === 'response.create').length === 2,
+        () => received.filter((e) => e.type === 'response.create').length === 3,
       );
       remoteSocket!.send(
         JSON.stringify({
@@ -1160,7 +1189,7 @@ for (const provider of ['qwen', 'glm'] as RealtimeProvider[])
       await until(() => relay.status()?.updates === 4);
       assert.equal(
         received.filter((e) => e.type === 'response.create').length,
-        2,
+        3,
         'Pausing cancels a continuation waiting for a session acknowledgment',
       );
     }

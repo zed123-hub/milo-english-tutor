@@ -72,6 +72,7 @@ import {
   wordsAtBoundary,
   estimatedWords,
   validateSubtitlePairs,
+  translatedSubtitlePairs,
   visiblePairs,
   type CaptionEvent,
   type CaptionCue,
@@ -123,6 +124,13 @@ void test('captions: boundary indices and audio duration reveal whole words; bil
     { english: 'How are you?', chinese: '你好吗？' },
   ];
   assert.deepEqual(validateSubtitlePairs(pairs, text), pairs);
+  assert.deepEqual(
+    translatedSubtitlePairs(['你好。', '你好吗？'], text),
+    pairs,
+  );
+  assert.deepEqual(translatedSubtitlePairs(['你好。你好吗？'], text), [
+    { english: text, chinese: '你好。你好吗？' },
+  ]);
   assert.equal(
     validateSubtitlePairs(
       [{ english: 'Wrong sentence.', chinese: '错误内容' }],

@@ -178,6 +178,7 @@ export function validateData(value: unknown): LearningData {
       'hint',
       'played',
       'assessed',
+      'liveCorrection',
       'observation',
     ]);
     const turn = {
@@ -196,6 +197,19 @@ export function validateData(value: unknown): LearningData {
       hint: number(o.hint, 0, 3),
       played: bool(o.played),
       assessed: bool(o.assessed),
+      ...(o.liveCorrection === undefined
+        ? {}
+        : {
+            liveCorrection: (() => {
+              const c = object(o.liveCorrection);
+              keys(c, ['original', 'better', 'note']);
+              return {
+                original: text(c.original, 160),
+                better: text(c.better, 160),
+                note: text(c.note, 120),
+              };
+            })(),
+          }),
       ...(o.observation === undefined
         ? {}
         : { observation: validateObservation(o.observation, text(o.text)) }),
@@ -203,6 +217,12 @@ export function validateData(value: unknown): LearningData {
     if (
       !Number.isInteger(turn.hint) ||
       !sessionIds.has(turn.sessionId) ||
+      (turn.liveCorrection &&
+        (turn.role !== 'user' ||
+          turn.source === 'legacy-text' ||
+          !turn.liveCorrection.original.trim() ||
+          !turn.text.includes(turn.liveCorrection.original) ||
+          !turn.liveCorrection.better.trim())) ||
       (turn.observation &&
         (turn.role !== 'user' ||
           !turn.assessed ||

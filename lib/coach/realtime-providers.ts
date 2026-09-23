@@ -94,7 +94,6 @@ export function websocketSession(
   config: RealtimeConfig,
   instructions: string,
   tools: Tool[],
-  phase: 'opening' | 'refresh' = 'opening',
 ) {
   if (config.provider === 'openai') throw Error('INVALID_ACTION');
   const common = {
@@ -141,7 +140,7 @@ export function websocketSession(
                         type: 'integer',
                         enum: [1, 2, 3],
                         description:
-                          'Help level: 1 means a direction, 2 a keyword, and 3 a complete model answer.',
+                          '1 direction; 2 keyword; 3 requested answer.',
                       },
                     },
                   },
@@ -155,8 +154,7 @@ export function websocketSession(
                     properties: {
                       reason: {
                         type: 'string',
-                        description:
-                          'The learner asked to end the conversation.',
+                        description: 'The learner asked to stop.',
                       },
                     },
                     required: ['reason'],
@@ -178,9 +176,10 @@ export function websocketSession(
               tts_source: 'e2e',
               auto_search: false,
               greeting_config: {
-                enable: phase === 'opening',
-                content:
-                  "Hi, I'm Milo. Even a busy café can feel peaceful when you find a quiet table.",
+                enable: false,
+                // GLM previously accepted this field even when the greeting was
+                // disabled; keep a non-spoken compatibility value.
+                content: 'Hello.',
               },
             },
           },

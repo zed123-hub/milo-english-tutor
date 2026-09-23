@@ -1,5 +1,13 @@
 'use client';
-import { Ear, Compass, Route, Pause, Check, Circle } from 'lucide-react';
+import {
+  Ear,
+  Compass,
+  Route,
+  Pause,
+  Check,
+  Circle,
+  Sparkles,
+} from 'lucide-react';
 import {
   Sheet,
   SheetContent,
@@ -32,6 +40,15 @@ export function CoachTeachingView({
     (t) => t.sessionId === data.activeSessionId,
   );
   const student = current.filter((t) => t.role === 'user').at(-1);
+  const correctionSessionId = data.activeSessionId ?? data.sessions.at(-1)?.id;
+  const corrections = data.turns
+    .filter(
+      (turn) =>
+        turn.sessionId === correctionSessionId &&
+        turn.role === 'user' &&
+        turn.liveCorrection,
+    )
+    .slice(-4);
   const memory = data.memories
     .filter((m) => m.sessionId === data.activeSessionId)
     .at(-1);
@@ -79,7 +96,7 @@ export function CoachTeachingView({
                 ? student.assessed
                   ? (memory?.text ?? '这次表达已记录，接着看看怎样用得更自然。')
                   : '刚听到了你的表达。先接着聊，结束后再整理这次表现。'
-                : '先用一句简单的英语认识彼此，观察你能否听懂、是否愿意开口。'}
+                : '我会先从最近的交流自然接话，留意你听懂和表达的节奏。'}
             </p>
             {student && (
               <blockquote>
@@ -88,6 +105,28 @@ export function CoachTeachingView({
               </blockquote>
             )}
           </article>
+          {corrections.length > 0 && (
+            <article className="c-teaching-step c-correction-history">
+              <div>
+                <Sparkles />
+                <span>表达可以这样说</span>
+              </div>
+              {corrections.map((turn) => (
+                <section className="c-correction-pair" key={turn.id}>
+                  <p>
+                    <small>刚才说</small> {turn.liveCorrection!.original}
+                  </p>
+                  <p>
+                    <small>更自然</small> {turn.liveCorrection!.better}
+                  </p>
+                  {turn.liveCorrection!.note && (
+                    <span>{turn.liveCorrection!.note}</span>
+                  )}
+                </section>
+              ))}
+              <small>这张卡片不会打断正在进行的语音对话。</small>
+            </article>
+          )}
           <article className="c-teaching-step">
             <div>
               <Compass />
@@ -105,7 +144,7 @@ export function CoachTeachingView({
             <ul>
               <li>
                 <Check />
-                一次只推进一个小问题，用简单英语让你接得上。
+                顺着你刚才说的内容继续交流，难度随你的表达调整。
               </li>
               {data.hint > 0 && (
                 <li>
@@ -119,7 +158,7 @@ export function CoachTeachingView({
               )}
               <li>
                 <Check />
-                当前可以自然聊到：{lesson.scene.name}。一次只增加一点新表达。
+                当前可自然聊到：{lesson.scene.name}。适时带回熟悉的表达。
               </li>
               {data.plan.review.length > 0 && (
                 <li>

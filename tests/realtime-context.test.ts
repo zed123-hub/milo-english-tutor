@@ -7,6 +7,10 @@ import {
   teacherInstructions,
 } from '../lib/coach/teacher';
 import { quietTurnInstructions } from '../lib/coach/tutor-guidance';
+import {
+  realtimeConfig,
+  websocketSession,
+} from '../lib/coach/realtime-providers';
 
 function largeHistory(): LearningData {
   const data = freshData('2026-01-01T00:00:00.000Z');
@@ -80,7 +84,7 @@ void test('realtime context: policy updates do not reinsert transcripts or openi
     'a different opening that should not restart the lesson';
   assert.equal(realtimeInstructions(data, options), before);
   assert.doesNotMatch(before, /recentExchange|Speech 49|nextOpening/);
-  assert.match(before, /not a new lesson or a request to speak/);
+  assert.match(before, /not a request to speak/);
 });
 
 void test('realtime context: connection refresh uses bounded supplied context and waits for new speech', () => {
@@ -97,7 +101,7 @@ void test('realtime context: connection refresh uses bounded supplied context an
   });
   assert.match(session.instructions, /Which differences surprised you most/);
   assert.doesNotMatch(session.instructions, /Speech 49|nextOpening/);
-  assert.match(session.instructions, /Do not greet, repeat the last question/);
+  assert.match(session.instructions, /no greeting or repeated question/);
   assert.match(session.instructions, /Wait for new learner input/);
   const empty = realtimeInstructions(data, { recentExchange: [] });
   assert.doesNotMatch(empty, /Speech 49/);
@@ -112,7 +116,9 @@ void test('realtime context: compact instructions preserve speech, adaptation an
   assert.match(instructions, /Questions are optional/);
   assert.match(instructions, /consecutive tutor turns with questions/);
   assert.match(instructions, /several turns/);
-  assert.match(instructions, /openingSituation/);
+  assert.match(instructions, /latest usable learner exchange or memory/);
+  assert.match(instructions, /never announce review or prompt recall/);
+  assert.doesNotMatch(instructions, /openingSituation|nextOpening/);
   assert.match(instructions, /Do not default to demonstrations/);
   assert.match(instructions, /record_hint before/);
   assert.match(instructions, /Only when the learner clearly wants to stop/);
@@ -124,13 +130,35 @@ void test('realtime context: compact instructions preserve speech, adaptation an
   });
   assert.doesNotMatch(
     realtimeInstructions(freshData(), { policyOnly: true }),
-    /openingSituation/,
+    /openingSituation|nextOpening|latest usable learner exchange or memory/,
+  );
+});
+
+void test('Qwen: the repeated fixed prompt and tools stay within a small wire budget', () => {
+  const session = realtimeSession(freshData(), 'qwen3.5-omni-flash-realtime');
+  const config = realtimeConfig({
+    realtimeProvider: 'qwen',
+    realtimeModel: 'qwen3.5-omni-flash-realtime',
+  });
+  const wire = websocketSession(config, session.instructions, session.tools);
+  assert.ok(
+    session.instructions.length < 1900,
+    `repeated instructions: ${session.instructions.length} characters`,
+  );
+  assert.ok(
+    JSON.stringify(wire.session.tools).length < 800,
+    `repeated tools: ${JSON.stringify(wire.session.tools).length} characters`,
   );
 });
 
 void test('tutor prompts: authored rules and tools are English while personal data stays intact', () => {
   const data = freshData();
-  data.plan.reason = '保留原有中文教学摘要';
+  data.plan.focus = '保留原有中文教学摘要';
+  data.memories.push({
+    sessionId: 'prior-session',
+    text: '此前聊过音乐',
+    at: data.createdAt,
+  });
   const before = structuredClone(data);
   const standard = teacherInstructions(data);
   const realtime = realtimeInstructions(data);
@@ -147,7 +175,7 @@ void test('tutor prompts: authored rules and tools are English while personal da
     /\p{Script=Han}/u,
   );
   for (const prompt of [standard, realtime]) {
-    assert.match(prompt, /Be a conversation partner who takes initiative/);
+    assert.match(prompt, /active conversation partner, not an interviewer/);
     assert.match(prompt, /Questions are optional/);
     assert.match(prompt, /Do not default to demonstrations/);
     assert.match(prompt, /保留原有中文教学摘要/);
