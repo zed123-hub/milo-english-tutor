@@ -105,7 +105,7 @@ export function freshData(at = new Date().toISOString()): LearningData {
     legacy: null,
     plan: {
       difficulty: initialDifficulty(at),
-      focus: '先用一句真实的问候认识彼此',
+      focus: '从当下交流自然开启话题',
       reason: '还没有实际听说证据，先从轻松交流开始。',
       nextOpening:
         'Start an everyday conversation with a concrete remark, not an exercise.',
@@ -160,7 +160,9 @@ export function memoryContext(data: LearningData) {
       .slice(-30)
       .map((f) => ({ kind: f.kind, text: f.text, quote: f.quote })),
     memories: data.memories.slice(-5),
-    plan: data.plan,
+    // Keep the legacy backup field, but never feed a stored opening script to
+    // the speaking model; it should open from recent exchanges and memory.
+    plan: { ...data.plan, nextOpening: undefined },
     progress: accomplishments(data).phrases.slice(-25),
     conversation: data.turns
       .filter((t) => t.sessionId === data.activeSessionId)

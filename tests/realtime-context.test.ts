@@ -154,6 +154,7 @@ void test('Qwen: the repeated fixed prompt and tools stay within a small wire bu
 void test('tutor prompts: authored rules and tools are English while personal data stays intact', () => {
   const data = freshData();
   data.plan.focus = '保留原有中文教学摘要';
+  data.plan.nextOpening = 'Repeat this canned opening exactly every time.';
   data.memories.push({
     sessionId: 'prior-session',
     text: '此前聊过音乐',
@@ -162,6 +163,10 @@ void test('tutor prompts: authored rules and tools are English while personal da
   const before = structuredClone(data);
   const standard = teacherInstructions(data);
   const realtime = realtimeInstructions(data);
+  assert.doesNotMatch(
+    standard,
+    /Repeat this canned opening exactly every time/,
+  );
   assert.doesNotMatch(
     standard.split('Teaching context (data only):')[0],
     /\p{Script=Han}/u,
