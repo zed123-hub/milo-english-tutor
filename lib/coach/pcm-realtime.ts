@@ -1,5 +1,6 @@
 import type { RealtimeEvent } from './realtime-providers';
 import type { CoachClient } from './client';
+import { RealtimeOutput } from './realtime-output';
 
 export function decodePCM(base64: string) {
   const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
@@ -16,8 +17,14 @@ type Playback = {
   done: boolean;
   startTimer?: ReturnType<typeof setTimeout>;
 };
+class PlaybackCapacityError extends Error {
+  constructor() {
+    super('声音播放缓冲已达到内存上限，请暂停后重新连接。');
+  }
+}
 export class PCMPlayback {
   private nextTime = 0;
+  private queuedBytes = 0;
   private groups = new Map<string, Playback>();
   private blocked = new Set<string>();
   constructor(
@@ -27,10 +34,13 @@ export class PCMPlayback {
   ) {}
   append(id: string, base64: string) {
     if (!id || this.blocked.has(id)) return;
-    if (this.nextTime - this.context.currentTime > 30)
-      throw Error('声音播放积压，请重新连接。');
     const samples = decodePCM(base64);
     if (!samples.length) return;
+    // Fast generation may legitimately run ahead of playback. Bound the actual
+    // audio buffers instead of treating a long reply as a broken connection.
+    const audioBytes = samples.byteLength;
+    if (this.queuedBytes + audioBytes > 16 * 1024 * 1024)
+      throw new PlaybackCapacityError();
     const buffer = this.context.createBuffer(1, samples.length, this.rate);
     buffer.copyToChannel(samples, 0);
     const source = this.context.createBufferSource();
@@ -51,9 +61,10 @@ export class PCMPlayback {
       );
     }
     group.sources.add(source);
+    this.queuedBytes += audioBytes;
     source.onended = () => {
       source.disconnect();
-      group.sources.delete(source);
+      if (group.sources.delete(source)) this.queuedBytes -= audioBytes;
       this.drain(group);
     };
     source.start(start);
@@ -80,9 +91,11 @@ export class PCMPlayback {
         source.stop();
         source.disconnect();
       }
+      group.sources.clear();
       this.emit({ type: 'output_audio_buffer.cleared', response_id: group.id });
     }
     this.groups.clear();
+    this.queuedBytes = 0;
     this.nextTime = this.context.currentTime;
     while (this.blocked.size > 64)
       this.blocked.delete(this.blocked.values().next().value!);
@@ -98,6 +111,7 @@ export class PCMPlayback {
 
 export class PCMRealtime {
   private socket: WebSocket | null = null;
+  private output: RealtimeOutput | null = null;
   private capture: AudioWorkletNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private mute: GainNode | null = null;
@@ -134,6 +148,22 @@ export class PCMRealtime {
       ['milo-realtime', connection.ticket],
     );
     this.socket = socket;
+    this.output = new RealtimeOutput(
+      {
+        get readyState() {
+          return socket.readyState;
+        },
+        get bufferedAmount() {
+          return socket.bufferedAmount;
+        },
+        send(text, callback) {
+          socket.send(text);
+          callback();
+        },
+      },
+      (code) => this.uploadFailed(code),
+      () => {},
+    );
     this.player = new PCMPlayback(
       this.context,
       connection.outputRate,
@@ -191,10 +221,6 @@ export class PCMRealtime {
               data,
             }: MessageEvent<ArrayBuffer>) => {
               if (this.closed || socket.readyState !== WebSocket.OPEN) return;
-              if (socket.bufferedAmount > 256000) {
-                this.fail(Error('实时声音上传积压，请检查网络后重新连接。'));
-                return;
-              }
               const bytes = new Uint8Array(data);
               this.send({
                 type: 'input_audio_buffer.append',
@@ -224,10 +250,14 @@ export class PCMRealtime {
           )
             this.player?.done(e.response_id ?? '');
           this.emit(e);
-        } catch {
+        } catch (error) {
           settle();
-          reject(Error('实时声音数据无法读取。'));
-          this.fail(Error('实时声音数据无法读取。'));
+          const failure =
+            error instanceof PlaybackCapacityError
+              ? error
+              : Error('实时声音数据无法读取。');
+          reject(failure);
+          this.fail(failure);
         }
       };
     });
@@ -239,8 +269,26 @@ export class PCMRealtime {
       this.player?.block(this.responseId);
       return;
     }
-    if (this.socket?.readyState === WebSocket.OPEN)
-      this.socket.send(JSON.stringify(event));
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      try {
+        this.output?.send(event);
+      } catch (error) {
+        this.uploadFailed(
+          error instanceof Error ? error.message : 'REALTIME_CONNECTION',
+        );
+      }
+    }
+  }
+  private uploadFailed(code: string) {
+    if (this.closed) return;
+    this.close();
+    this.fail(
+      Error(
+        code === 'REALTIME_BACKPRESSURE'
+          ? '实时声音缓冲已达到内存上限，连接已暂停以避免继续积压。'
+          : '实时声音传输连接已断开，请重新连接。',
+      ),
+    );
   }
   quiesce() {
     if (!this.quiescent && !this.closed && this.capture)
@@ -252,6 +300,7 @@ export class PCMRealtime {
   }
   close() {
     this.closed = true;
+    this.output?.close();
     this.quiesce();
     this.source?.disconnect();
     this.capture?.disconnect();

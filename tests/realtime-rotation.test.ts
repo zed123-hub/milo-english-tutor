@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { setTimeout as realSetTimeout } from 'node:timers';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
@@ -127,6 +128,12 @@ void test('context: independent provider turn limits and token trigger; duplicat
 for (const provider of ['qwen', 'glm'] as const)
   for (const action of ['continue', 'stop'] as const) {
     void test(`context relay ${provider} ${action}: replaces upstream only, preserves text and buffers new input until ACK`, async (t) => {
+      t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
+      t.mock.method(performance, 'now', () => Date.now());
+      const advance = async (ms: number) => {
+        t.mock.timers.tick(ms);
+        await new Promise<void>((r) => realSetTimeout(r, 2));
+      };
       const dir = mkdtempSync(join(tmpdir(), 'milo-context-test-'));
       const repo = new SqliteRepository(':memory:');
       const settings = new SettingsStore(dir);
@@ -204,7 +211,7 @@ for (const provider of ['qwen', 'glm'] as const)
         while (!condition()) {
           if (Date.now() - started > 4000)
             throw Error('context fixture timeout');
-          await new Promise((r) => setTimeout(r, 10));
+          await advance(25);
         }
       };
       await until(() => messages.some((e) => e.type === 'milo.ready'));
@@ -228,17 +235,23 @@ for (const provider of ['qwen', 'glm'] as const)
       );
       if (provider === 'glm')
         assert.equal(config.beta_fields!.greeting_config.enable, false);
-      // A new utterance arriving during the handshake is retained only in bounded RAM.
+      await advance(12000);
+      assert.equal(
+        browser.readyState,
+        WebSocket.OPEN,
+        'A continuing session gets the same handshake allowance as initial startup',
+      );
+      // A full recovered microphone queue arriving during the handshake stays in bounded RAM.
       const frame = Buffer.alloc(3200);
       for (let i = 0; i < frame.length; i += 2) frame.writeInt16LE(1200, i);
-      for (let i = 0; i < 3; i++)
+      for (let i = 0; i < 120; i++)
         browser.send(
           JSON.stringify({
             type: 'input_audio_buffer.append',
             audio: frame.toString('base64'),
           }),
         );
-      await new Promise((r) => setTimeout(r, 40));
+      await advance(40);
       assert.equal(
         received[1].filter((e) => e.type === 'input_audio_buffer.append')
           .length,
@@ -246,17 +259,17 @@ for (const provider of ['qwen', 'glm'] as const)
       );
       if (action === 'stop') {
         browser.send(JSON.stringify({ type: 'milo.input.finish' }));
-        await new Promise((r) => setTimeout(r, 30));
+        await advance(30);
       }
       sockets[1].send(JSON.stringify({ type: 'session.updated' }));
       if (action === 'continue')
         await until(
           () =>
             received[1].filter((e) => e.type === 'input_audio_buffer.append')
-              .length === 3,
+              .length === 120,
         );
       else {
-        await new Promise((r) => setTimeout(r, 150));
+        await advance(150);
         assert.equal(
           received[1].filter((e) => e.type === 'input_audio_buffer.append')
             .length,

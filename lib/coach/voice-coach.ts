@@ -790,12 +790,13 @@ export class VoiceCoach {
       }, 9000);
     this.responseTimer = setTimeout(
       () => {
+        // Slow generation and long WebRTC playback do not prove transport failure.
+        // Keep the existing response alive; a retry could create duplicate speech.
         if (this.alive && !this.stopping)
-          this.fail(
-            Error(
-              '实时语音回应超时，已暂停连接并保留收到的对话。请检查网络或切换实时模型后重连。',
-            ),
-            'REALTIME_TIMEOUT',
+          this.cb.message(
+            playing
+              ? '声音仍在播放或等待后续数据，连接保持中；如需结束可点击暂停。'
+              : '仍在等待模型回应，连接保持中；你可以继续等待，或点击暂停后重连。',
           );
       },
       playing ? 45000 : 25000,
@@ -870,15 +871,18 @@ export class VoiceCoach {
       diagnostic.state(
         pc.connectionState === 'connected'
           ? 'ready'
-          : pc.connectionState === 'connecting'
+          : ['connecting', 'disconnected'].includes(pc.connectionState)
             ? 'connecting'
             : 'closed',
       );
       if (
         this.alive &&
         this.pc === pc &&
-        ['failed', 'disconnected'].includes(pc.connectionState)
-      ) {
+        !this.stopping &&
+        pc.connectionState === 'disconnected'
+      )
+        this.cb.message('网络连接暂时不稳，正在等待恢复；会话保持中。');
+      if (this.alive && this.pc === pc && pc.connectionState === 'failed') {
         diagnostic.fault({ code: 'REALTIME_CONNECTION' });
         diagnostic.close('transport_error');
         this.saveDiagnostic();

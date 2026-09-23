@@ -69,7 +69,50 @@ void test('realtime output: congestion drains in order and close discards queued
   assert.deepEqual(failures, []);
 });
 
-void test('realtime output: persistent congestion and excessive memory remain bounded', (t) => {
+void test('realtime output: a temporary 12 second stall recovers without locally ending the call', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let now = 0;
+  const sent: string[] = [],
+    failures: string[] = [];
+  const socket = {
+    readyState: 1,
+    bufferedAmount: 69168,
+    send(text: string, callback: (error?: Error) => void) {
+      sent.push(JSON.parse(text).type);
+      callback();
+    },
+  };
+  const output = new RealtimeOutput(
+    socket,
+    (error) => failures.push(error),
+    () => {},
+    () => now,
+  );
+  t.after(() => output.close());
+  for (const type of [
+    'input_audio_buffer.append',
+    'input_audio_buffer.commit',
+    'response.create',
+  ])
+    output.send({ type });
+  now = 12000;
+  t.mock.timers.tick(25);
+  assert.deepEqual(
+    failures,
+    [],
+    'Elapsed queue age alone is not a remote disconnect',
+  );
+  socket.bufferedAmount = 0;
+  t.mock.timers.tick(25);
+  assert.deepEqual(sent, [
+    'input_audio_buffer.append',
+    'input_audio_buffer.commit',
+    'response.create',
+  ]);
+  assert.equal(output.idle, true);
+});
+
+void test('realtime output: congestion is byte-bounded and a closed socket still fails', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   let now = 0;
   const failures: string[] = [];
@@ -95,7 +138,11 @@ void test('realtime output: persistent congestion and excessive memory remain bo
   );
   now = 10000;
   t.mock.timers.tick(25);
-  assert.deepEqual(failures, ['REALTIME_BACKPRESSURE']);
+  assert.deepEqual([...failures], []);
+  socket.readyState = 3;
+  t.mock.timers.tick(25);
+  assert.deepEqual(failures, ['REALTIME_CONNECTION']);
+  socket.readyState = 1;
   socket.bufferedAmount = 0;
   t.mock.timers.tick(1000);
   output.send({ type: 'response.create' });
@@ -828,6 +875,18 @@ for (const provider of ['qwen', 'glm'] as RealtimeProvider[])
     };
     await until(() => messages.some((e) => e.type === 'milo.ready'));
     assert.equal(browser.protocol, 'milo-realtime');
+    // Browser suspension is not a closed WebSocket. Move the media clock forward
+    // without producing audio; the relay must remain available when capture resumes.
+    const actualNow = Date.now;
+    let timeOffset = 21000;
+    t.mock.method(Date, 'now', () => actualNow() + timeOffset);
+    await new Promise((r) => setTimeout(r, 2100));
+    assert.equal(
+      browser.readyState,
+      WebSocket.OPEN,
+      'A 21 second input gap must not end a healthy relay',
+    );
+    assert.equal(messages.filter((e) => e.type === 'error').length, 0);
     const replay = new WebSocket(
       `ws://localhost:${port}/api/local/realtime/socket`,
       ['milo-realtime', ticket.ticket],
@@ -839,6 +898,16 @@ for (const provider of ['qwen', 'glm'] as RealtimeProvider[])
         type: 'input_audio_buffer.append',
         audio: Buffer.alloc((ticket.inputRate / 10) * 2).toString('base64'),
       }),
+    );
+    await until(() => relay.status()?.inputFrames === 1);
+    // More than three minutes have elapsed since setup, but the learner's
+    // accepted microphone frame is recent enough to keep the call alive.
+    timeOffset = 181000;
+    await new Promise((r) => setTimeout(r, 2100));
+    assert.equal(
+      browser.readyState,
+      WebSocket.OPEN,
+      'Accepted learner audio must refresh the inactivity clock',
     );
     if (provider === 'glm') {
       const voiced = Buffer.alloc((ticket.inputRate / 10) * 2);
@@ -921,7 +990,7 @@ for (const provider of ['qwen', 'glm'] as RealtimeProvider[])
       // Chrome can deliver several seconds of queued Worklet messages together
       // after the main thread stalls while the teacher is speaking.
       congested = true;
-      for (let i = 0; i < 46; i++)
+      for (let i = 0; i < 120; i++)
         browser.send(
           JSON.stringify({
             type: 'input_audio_buffer.append',
@@ -931,7 +1000,7 @@ for (const provider of ['qwen', 'glm'] as RealtimeProvider[])
       await until(
         () =>
           messages.some((e) => e.type === 'error') ||
-          relay.status()?.inputFrames === 47,
+          relay.status()?.inputFrames === 121,
       );
       assert.equal(
         messages.some((e) => e.type === 'error'),
@@ -947,11 +1016,11 @@ for (const provider of ['qwen', 'glm'] as RealtimeProvider[])
       await until(
         () =>
           received.filter((e) => e.type === 'input_audio_buffer.append')
-            .length === 47,
+            .length === 121,
       );
       assert.equal(
         received.filter((e) => e.type === 'input_audio_buffer.append').length,
-        47,
+        121,
       );
     }
     remoteSocket!.send(
@@ -1107,7 +1176,7 @@ for (const provider of ['qwen', 'glm'] as RealtimeProvider[])
     assert.equal(error.error.code, 'REALTIME_CONFIG');
     assert.equal(error.error.providerCode, '1213');
     assert.equal(relay.status()?.phase, 'error');
-    assert.equal(relay.status()?.inputFrames, provider === 'glm' ? 15 : 47);
+    assert.equal(relay.status()?.inputFrames, provider === 'glm' ? 15 : 121);
     assert.equal(relay.status()?.signalFrames, provider === 'glm' ? 2 : 0);
     assert.equal(relay.status()?.localSpeechStops, provider === 'glm' ? 1 : 0);
     assert.doesNotMatch(
@@ -1166,8 +1235,13 @@ for (const provider of ['qwen', 'glm'] as RealtimeProvider[])
                     ? 'fixture-private-key!'
                     : 'AAA=',
               };
-        for (let i = 0; i < (scenario.type === 'malformed' ? 1 : 240); i++)
-          ws.send(JSON.stringify(event));
+        const count =
+          scenario.type === 'malformed'
+            ? 1
+            : scenario.type === 'controls'
+              ? 240
+              : 650;
+        for (let i = 0; i < count; i++) ws.send(JSON.stringify(event));
         await disconnected;
         assert.equal(
           seen.find((event) => event.type === 'error')?.error?.code,

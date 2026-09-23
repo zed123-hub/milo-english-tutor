@@ -13,6 +13,7 @@ import {
 } from '../lib/coach/realtime-providers';
 import type { TestContext } from 'node:test';
 import { realtimeInstructions } from '../lib/coach/teacher';
+import { defaultSettings } from '../local/settings';
 void test('realtime: delayed translation keeps spoken English visible instead of replacing it with a waiting message', () => {
   const client = new CoachClient(() => {});
   const markup = renderToStaticMarkup(
@@ -251,7 +252,7 @@ void test('realtime: late duplicated malformed GLM arguments produce one error r
   assert.equal(sent.filter((e) => e.type === 'response.create').length, 1);
   assert.match(JSON.stringify(sent), /INVALID_TOOL_ARGUMENTS/);
 });
-void test('realtime: silent provider gets a bounded response timeout; text alone cannot conceal missing audio', (t) => {
+void test('realtime: slow audio raises a waiting notice without terminating or recreating a response', (t) => {
   const { inner, errors, messages } = controlledVoice(t);
   inner.send({ type: 'response.create' });
   t.mock.timers.tick(9000);
@@ -263,8 +264,9 @@ void test('realtime: silent provider gets a bounded response timeout; text alone
     delta: 'Hello.',
   });
   t.mock.timers.tick(16000);
-  assert.equal(errors.length, 1);
-  assert.match(errors[0], /回应超时/);
+  assert.equal(errors.length, 0);
+  assert.equal(messages.length, 2);
+  assert.match(messages[1], /等待/);
 });
 void test('realtime: failed/incomplete responses fail promptly; cancelled responses leave thinking', (t) => {
   const { inner, errors, states } = controlledVoice(t);
@@ -294,7 +296,7 @@ void test('realtime: a lost transcript cannot disable the next quiet reminder', 
   assert.equal(sent.filter((e) => e.type === 'response.create').length, 1);
 });
 void test('realtime: late cancellation of an old reply cannot clear the current response timeout', (t) => {
-  const { inner, errors } = controlledVoice(t);
+  const { inner, errors, messages } = controlledVoice(t);
   inner.event({ type: 'response.created', response_id: 'new' });
   inner.event({
     type: 'response.done',
@@ -302,7 +304,8 @@ void test('realtime: late cancellation of an old reply cannot clear the current 
     response: { status: 'cancelled' },
   });
   t.mock.timers.tick(25000);
-  assert.equal(errors.length, 1);
+  assert.equal(errors.length, 0);
+  assert.equal(messages.length, 2);
 });
 void test('realtime: copied or supported long sentences do not trigger fluent adaptation', () => {
   const data = freshData(),
@@ -414,7 +417,7 @@ void test('realtime: pause saves a final transcript arriving during its bounded 
 });
 
 void test('realtime: cancellation arriving after student speech ends does not swallow the new wait', (t) => {
-  const { inner, errors } = controlledVoice(t);
+  const { inner, errors, messages } = controlledVoice(t);
   inner.event({ type: 'response.created', response_id: 'old' });
   inner.event({
     type: 'input_audio_buffer.speech_started',
@@ -430,7 +433,11 @@ void test('realtime: cancellation arriving after student speech ends does not sw
     response: { status: 'cancelled' },
   });
   t.mock.timers.tick(25000);
-  assert.equal(errors.length, 1);
+  assert.equal(errors.length, 0);
+  assert.equal(
+    messages.filter((message) => /模型回应/.test(message)).length,
+    2,
+  );
 });
 void test('realtime: teaching context remains bounded as saved history grows', () => {
   const data = freshData();
@@ -452,4 +459,185 @@ void test('realtime: teaching context remains bounded as saved history grows', (
   assert.match(instructions, /very next response/);
   assert.match(instructions, /NOT ceilings/);
   assert.equal(data.facts.length, 500);
+});
+
+async function startedWebRTC(t: TestContext) {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const originals = new Map<string, PropertyDescriptor | undefined>();
+  const setGlobal = (name: string, value: unknown) => {
+    originals.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
+    Object.defineProperty(globalThis, name, {
+      configurable: true,
+      writable: true,
+      value,
+    });
+  };
+  const calls = { trackStop: 0, peerClose: 0 };
+  const sent: { type: string }[] = [];
+  const channel = {
+    readyState: 'open',
+    onmessage: null as ((event: { data: string }) => void) | null,
+    send(raw: string) {
+      sent.push(JSON.parse(raw) as { type: string });
+    },
+    close() {
+      this.readyState = 'closed';
+    },
+  };
+  const peer = {
+    connectionState: 'connected',
+    onconnectionstatechange: null as (() => void) | null,
+    addTrack() {},
+    createDataChannel: () => channel,
+    async createOffer() {
+      return { sdp: 'synthetic-offer' };
+    },
+    async setLocalDescription() {},
+    async setRemoteDescription() {},
+    async getStats() {
+      return new Map();
+    },
+    close() {
+      calls.peerClose++;
+      this.connectionState = 'closed';
+    },
+  };
+  setGlobal('navigator', {
+    mediaDevices: {
+      async getUserMedia() {
+        return { getTracks: () => [{ stop: () => calls.trackStop++ }] };
+      },
+    },
+  });
+  setGlobal('window', { speechSynthesis: { cancel() {} } });
+  setGlobal('cancelAnimationFrame', () => {});
+  setGlobal(
+    'Audio',
+    class {
+      pause() {}
+    },
+  );
+  setGlobal(
+    'RTCPeerConnection',
+    class {
+      constructor() {
+        return peer;
+      }
+    },
+  );
+  setGlobal('fetch', async (url: string) => {
+    assert.equal(url, '/api/local/realtime/diagnostics');
+    return new Response('{}');
+  });
+  const client = new CoachClient(() => {});
+  client.settings = {
+    ...defaultSettings,
+    voiceMode: 'realtime',
+    realtimeProvider: 'openai',
+    ready: true,
+    teacherKeyConfigured: true,
+    voiceKeyConfigured: true,
+  };
+  client.snapshot = { revision: 1, epoch: 'rtc-fixture', data: freshData() };
+  const commands: string[] = [],
+    states: string[] = [],
+    errors: string[] = [],
+    messages: string[] = [];
+  client.command = async (action) => {
+    commands.push(action);
+    client.snapshot!.data.activeSessionId =
+      action === 'end' ? null : 'rtc-session';
+    return { snapshot: client.snapshot! };
+  };
+  client.load = async () => ({ snapshot: client.snapshot! });
+  client.request = async (path) => {
+    assert.equal(path, 'realtime');
+    return { sdp: 'synthetic-answer' };
+  };
+  const voice = new VoiceCoach(client, {
+    status: (state) => states.push(state),
+    error: (error) => errors.push(error),
+    message: (message) => messages.push(message),
+  });
+  t.after(async () => {
+    await voice.stop();
+    for (const [name, descriptor] of originals) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
+  });
+  await voice.start();
+  const event = (message: RealtimeEvent) =>
+    channel.onmessage?.({ data: JSON.stringify(message) });
+  event({ type: 'session.created' });
+  return {
+    voice,
+    calls,
+    peer,
+    sent,
+    commands,
+    states,
+    errors,
+    messages,
+    event,
+  };
+}
+
+void test('realtime start: a late first audio reply stays connected and manual stop still releases media', async (t) => {
+  const f = await startedWebRTC(t);
+  f.event({ type: 'response.created', response_id: 'slow-first-audio' });
+  t.mock.timers.tick(26_000);
+  assert.deepEqual(f.errors, []);
+  assert.equal(f.calls.peerClose, 0);
+  assert.equal(f.calls.trackStop, 0);
+  assert.equal(
+    f.sent.filter((event) => event.type === 'response.create').length,
+    1,
+  );
+  assert.match(f.messages.at(-1)!, /等待/);
+  f.event({
+    type: 'output_audio_buffer.started',
+    response_id: 'slow-first-audio',
+  });
+  assert.equal(f.states.at(-1), 'speaking');
+  await f.voice.stop();
+  const messagesAfterStop = f.messages.length;
+  t.mock.timers.tick(60_000);
+  assert.equal(f.messages.length, messagesAfterStop);
+  assert.equal(f.calls.peerClose, 1);
+  assert.deepEqual(f.commands, ['start', 'end']);
+});
+
+void test('realtime start: WebRTC audio lasting more than 45 seconds is not stopped by a response watchdog', async (t) => {
+  const f = await startedWebRTC(t);
+  f.event({ type: 'response.created', response_id: 'long-audio' });
+  f.event({ type: 'output_audio_buffer.started', response_id: 'long-audio' });
+  t.mock.timers.tick(46_000);
+  assert.deepEqual(f.errors, []);
+  assert.equal(f.calls.peerClose, 0);
+  assert.equal(f.calls.trackStop, 0);
+  assert.equal(f.states.at(-1), 'speaking');
+  f.event({ type: 'output_audio_buffer.stopped', response_id: 'long-audio' });
+  assert.equal(f.states.at(-1), 'listening');
+});
+
+void test('realtime start: a transient WebRTC disconnect can recover while a failed transport still terminates', async (t) => {
+  const f = await startedWebRTC(t);
+  f.peer.connectionState = 'disconnected';
+  f.peer.onconnectionstatechange?.();
+  assert.deepEqual(f.errors, []);
+  assert.equal(f.calls.peerClose, 0);
+  assert.equal(f.calls.trackStop, 0);
+  assert.match(f.messages.at(-1)!, /网络|连接/);
+  f.peer.connectionState = 'connected';
+  f.peer.onconnectionstatechange?.();
+  f.event({ type: 'response.created', response_id: 'recovered' });
+  f.event({ type: 'output_audio_buffer.started', response_id: 'recovered' });
+  assert.equal(f.states.at(-1), 'speaking');
+  f.peer.connectionState = 'failed';
+  f.peer.onconnectionstatechange?.();
+  assert.equal(f.errors.length, 1);
+  assert.equal(f.calls.peerClose, 1);
+  await f.voice.stop();
+  assert.deepEqual(f.commands, ['start', 'end']);
 });

@@ -10,7 +10,7 @@ import {
 import type { CoachService } from './service';
 import { RealtimeContextWindow } from './realtime-context';
 import { GLMInput } from './glm-input';
-import { RealtimeOutput } from './realtime-output';
+import { RealtimeOutput, REALTIME_OUTPUT_MAX_BYTES } from './realtime-output';
 import { INVALID_REALTIME_TOOL_OUTPUT } from '../lib/coach/realtime-tool-arguments';
 import { QwenLifecycle } from '../lib/coach/qwen-lifecycle';
 import { GLMLifecycle } from '../lib/coach/glm-lifecycle';
@@ -186,7 +186,7 @@ export class RealtimeRelay {
     let lastSignal = 0;
     let lastUpstreamEvent = Date.now();
     const heldAudio: { audio: string; rms: number; ms: number }[] = [];
-    let heldMs = 0;
+    let heldBytes = 0;
     let deferredNudge: 1 | 2 | undefined;
     const trace = new RealtimeDiagnostics(config.provider);
     let lastTraceSave = 0;
@@ -220,12 +220,15 @@ export class RealtimeRelay {
     this.diagnostics = diagnostics;
     let closed = false,
       ready = false,
-      lastFrame = Date.now(),
       lastActivity = Date.now();
     // A stalled Chrome main thread can flush several seconds of valid audio
     // at once. Limit audio duration separately from control event frequency.
+    // A recovered browser can flush its whole bounded output queue at once.
+    // Permit that same amount of valid PCM, not an unrelated 10-second cutoff.
+    const audioBurstSeconds =
+      (REALTIME_OUTPUT_MAX_BYTES * 3) / 4 / (config.inputRate * 2);
     let budgetAt = performance.now(),
-      audioBudget = 10,
+      audioBudget = audioBurstSeconds,
       controlBudget = 30;
     let failing = false;
     let failTimer: ReturnType<typeof setTimeout> | undefined;
@@ -286,10 +289,10 @@ export class RealtimeRelay {
     };
     let setupTimer = setTimeout(() => fail('REALTIME_TIMEOUT'), 20000);
     this.disposeConnection = cleanup;
+    // Capture can pause while a tab/audio device is suspended. A missing
+    // input frame is not a failed connection; retain the inactivity cleanup.
     const idleTimer = setInterval(() => {
       if (!this.valid(ticket) || Date.now() - lastActivity > 180000) cleanup();
-      else if (ready && Date.now() - lastFrame > 20000)
-        fail('REALTIME_INPUT_STALLED');
     }, 2000);
     const makeOutput = () =>
       new RealtimeOutput(
@@ -410,7 +413,7 @@ export class RealtimeRelay {
               clearTimeout(setupTimer);
               if (quiescent) {
                 heldAudio.length = 0;
-                heldMs = 0;
+                heldBytes = 0;
               }
               const hasSpeech = heldAudio.some((frame) => frame.rms > 0.008);
               for (const frame of heldAudio.splice(0)) {
@@ -422,7 +425,7 @@ export class RealtimeRelay {
                     audio: frame.audio,
                   });
               }
-              heldMs = 0;
+              heldBytes = 0;
               if (deferredNudge && !quiescent && !hasSpeech) {
                 update(
                   instructions(false, true).instructions +
@@ -557,7 +560,7 @@ export class RealtimeRelay {
         makeInput();
         trace.contextRotation();
         saveTrace(true);
-        setupTimer = setTimeout(() => fail('REALTIME_TIMEOUT'), 10000);
+        setupTimer = setTimeout(() => fail('REALTIME_TIMEOUT'), 20000);
         attachUpstream();
         old.terminate();
       } catch {
@@ -581,7 +584,7 @@ export class RealtimeRelay {
         const now = performance.now();
         const elapsed = Math.max(0, now - budgetAt) / 1000;
         budgetAt = now;
-        audioBudget = Math.min(10, audioBudget + elapsed);
+        audioBudget = Math.min(audioBurstSeconds, audioBudget + elapsed);
         controlBudget = Math.min(30, controlBudget + elapsed * 10);
         if (event.type === 'input_audio_buffer.append') {
           stage = 'audio';
@@ -602,7 +605,7 @@ export class RealtimeRelay {
           if (cost > audioBudget + 1e-6) throw Error('REALTIME_BACKPRESSURE');
           audioBudget -= cost;
           if (quiescent) return;
-          lastFrame = Date.now();
+          lastActivity = Date.now();
           diagnostics.inputFrames++;
           diagnostics.inputSeconds =
             Math.round(
@@ -618,8 +621,8 @@ export class RealtimeRelay {
             lastSignal = Date.now();
           }
           if (rotating) {
-            heldMs += seconds * 1000;
-            if (heldMs > 10000 || heldAudio.length >= 200)
+            heldBytes += event.audio.length + 64;
+            if (heldBytes > REALTIME_OUTPUT_MAX_BYTES)
               throw Error('REALTIME_BACKPRESSURE');
             heldAudio.push({ audio: event.audio, rms, ms: seconds * 1000 });
             return;
@@ -638,12 +641,13 @@ export class RealtimeRelay {
         stage = 'control_budget';
         if (controlBudget < 1) throw Error('REALTIME_EVENT_LIMIT');
         controlBudget--;
+        lastActivity = Date.now();
         stage = 'dispatch';
         if (event.type === 'milo.input.finish') {
           quiescent = true;
           if (rotating) {
             heldAudio.length = 0;
-            heldMs = 0;
+            heldBytes = 0;
           }
           deferredNudge = undefined;
           lifecycle.finish();
