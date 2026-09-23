@@ -179,7 +179,8 @@ export function websocketSession(
               auto_search: false,
               greeting_config: {
                 enable: phase === 'opening',
-                content: "Hi, I'm Milo. What's been on your mind today?",
+                content:
+                  "Hi, I'm Milo. Even a busy café can feel peaceful when you find a quiet table.",
               },
             },
           },

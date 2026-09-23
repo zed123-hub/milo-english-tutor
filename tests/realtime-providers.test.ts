@@ -474,6 +474,12 @@ void test('providers: official endpoints, model families and provider-specific s
   const g = websocketSession(glm, base.instructions, base.tools).session;
   assert.ok('audio' in q && q.audio?.input.format.sample_rate === 16000);
   assert.ok('input_audio_format' in g && g.input_audio_format === 'pcm24');
+  assert.match(
+    g.instructions,
+    /Never end consecutive tutor turns with questions/,
+  );
+  assert.equal(g.beta_fields.greeting_config.enable, true);
+  assert.doesNotMatch(g.beta_fields.greeting_config.content, /\?/);
   assert.ok('output_audio_format' in g && g.output_audio_format === 'pcm');
   assert.ok(!('input_audio_transcription' in g));
   assert.ok(!('tool_choice' in q));

@@ -110,6 +110,9 @@ void test('realtime context: compact instructions preserve speech, adaptation an
   assert.match(instructions, /very next response/);
   assert.match(instructions, /NOT ceilings/);
   assert.match(instructions, /Questions are optional/);
+  assert.match(instructions, /consecutive tutor turns with questions/);
+  assert.match(instructions, /several turns/);
+  assert.match(instructions, /openingSituation/);
   assert.match(instructions, /Do not default to demonstrations/);
   assert.match(instructions, /record_hint before/);
   assert.match(instructions, /Only when the learner clearly wants to stop/);
@@ -119,6 +122,10 @@ void test('realtime context: compact instructions preserve speech, adaptation an
     retention_ratio: 0.6,
     token_limits: { post_instructions: 4000 },
   });
+  assert.doesNotMatch(
+    realtimeInstructions(freshData(), { policyOnly: true }),
+    /openingSituation/,
+  );
 });
 
 void test('tutor prompts: authored rules and tools are English while personal data stays intact', () => {
