@@ -91,6 +91,18 @@ for (const provider of ['openai', 'qwen', 'glm'] as const) {
     life.accept(created('a'));
     life.accept(created('a'));
     interrupt();
+    if (provider === 'glm') {
+      assert.equal(
+        count('response.cancel'),
+        0,
+        'GLM waits for actual assistant audio before cancelling',
+      );
+      life.accept({
+        type: 'response.output_audio.delta',
+        response_id: 'a',
+        delta: 'AQI=',
+      });
+    }
     assert.equal(count('response.cancel'), 1);
     assert.equal(life.state, 'cancel_pending');
     life.accept({

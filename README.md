@@ -28,7 +28,7 @@ npm start
 | 语音服务 + 自选模型 | 自选文本模型                         | OpenAI 转写、语音合成      |
 | 系统语音 + 自选模型 | 自选文本模型                         | 浏览器听写、系统英文朗读   |
 
-文本对话与课后分析支持 DeepSeek、GLM、GPT、Qwen、MiniMax 和兼容 API。模型名称可编辑；Qwen 地址应与 Key 地域一致，也支持百炼业务空间专用域名。新增文本预设按 [Qwen 兼容接口](https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope) 和 [MiniMax 兼容接口](https://platform.minimax.io/docs/api-reference/text-openai-api) 接入。
+文本对话与课后分析支持 DeepSeek、GLM、GPT、Qwen、MiniMax 和兼容 API。在 DeepSeek 模型选择中可选 V4.1 Flash（API 模型名 `deepseek-flash`）；原有预设和已保存模型名称保持不变，名称也可手动编辑。Qwen 地址应与 Key 地域一致，也支持百炼业务空间专用域名。文本预设按 [DeepSeek 官方接口](https://api-docs.deepseek.com/api/create-chat-completion/)、[Qwen 兼容接口](https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope) 和 [MiniMax 兼容接口](https://platform.minimax.io/docs/api-reference/text-openai-api) 接入。
 
 分析 Key 留空时，仅在服务商和地址相同的情况下共用对话 Key。OpenAI 声音服务和 OpenAI 文本模型也可共用同一账号的 Key。切换服务地址会清除该角色旧 Key。千问和 GLM 的实时 Key 单独填写，不会沿用 OpenAI Key；课后分析仍在下方独立配置。
 

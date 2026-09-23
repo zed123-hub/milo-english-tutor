@@ -43,6 +43,13 @@ import {
 } from '@/components/ui/dialog';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   SidebarProvider,
   Sidebar,
   SidebarHeader,
@@ -121,6 +128,40 @@ function ModelFields({
           </label>
         ))}
       </RadioGroup>
+      {config.provider === 'deepseek' && (
+        <div className="grid gap-2">
+          <label htmlFor={prefix + '-model-preset'}>DeepSeek 模型</label>
+          <Select
+            value={
+              config.model === 'deepseek-flash' ||
+              config.model === 'deepseek-v4-flash'
+                ? config.model
+                : 'custom'
+            }
+            onValueChange={(model) => {
+              if (model)
+                onChange({
+                  ...config,
+                  model: model === 'custom' ? '' : model,
+                });
+            }}
+          >
+            <SelectTrigger
+              id={prefix + '-model-preset'}
+              className="h-11 w-full"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="deepseek-flash">V4.1 Flash（最新）</SelectItem>
+              <SelectItem value="deepseek-v4-flash">
+                V4 Flash（旧别名，暂时兼容）
+              </SelectItem>
+              <SelectItem value="custom">其他模型（下方填写）</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
       <label htmlFor={prefix + '-model'}>
         模型名称
         <Input

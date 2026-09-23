@@ -16,6 +16,9 @@ export class GLMLifecycle {
   private response: 'idle' | 'requested' | 'active' | 'cancel_pending' = 'idle';
   private responseId = '';
   private cancelSent = false;
+  private audioStarted = false;
+  private cancelErrorHandled = false;
+  private lateCancelError = false;
   private terminalResponses = new Set<string>();
   private configured = false;
   private nextPolicy: string | undefined;
@@ -35,6 +38,25 @@ export class GLMLifecycle {
   }
   get state() {
     return this.connection === 'ready' ? this.response : this.connection;
+  }
+  recoverCancelError(code?: string) {
+    if (code !== 'model_query_error' || this.connection !== 'ready')
+      return false;
+    if (
+      this.response === 'cancel_pending' &&
+      this.cancelSent &&
+      !this.cancelErrorHandled
+    ) {
+      this.cancelErrorHandled = true;
+      return true;
+    }
+    // GLM may deliver response.done before the error for that cancellation.
+    // Only consume one late error before a different response is created.
+    if (this.lateCancelError) {
+      this.lateCancelError = false;
+      return true;
+    }
+    return false;
   }
   private configure(opening: boolean) {
     this.connection = 'updating';
@@ -74,6 +96,8 @@ export class GLMLifecycle {
       this.response = 'requested';
       this.responseId = '';
       this.cancelSent = false;
+      this.audioStarted = false;
+      this.cancelErrorHandled = false;
       this.send({ type: 'response.create', event_id: crypto.randomUUID() });
     }
   }
@@ -88,7 +112,9 @@ export class GLMLifecycle {
     this.nextResponse = false;
     if (!['requested', 'active'].includes(this.response)) return;
     this.response = 'cancel_pending';
-    if (this.responseId) this.cancelResponse();
+    // GLM's reference client cancels only after actual assistant audio starts.
+    // A response.created event alone may still be in model setup.
+    if (this.responseId && this.audioStarted) this.cancelResponse();
   }
   accept(event: RealtimeEvent) {
     if (this.connection === 'closed') return;
@@ -106,19 +132,43 @@ export class GLMLifecycle {
     } else if (event.type === 'response.created') {
       const id = event.response_id ?? event.response?.id ?? '';
       if (id && this.terminalResponses.has(id)) return;
+      this.lateCancelError = false;
+      if (id !== this.responseId) this.audioStarted = false;
       const cancelling =
         this.response === 'cancel_pending' &&
         (!this.responseId || !id || id === this.responseId);
       this.responseId = id;
       this.response = cancelling ? 'cancel_pending' : 'active';
-      if (cancelling && !this.cancelSent) this.cancelResponse();
+      if (cancelling && this.audioStarted && !this.cancelSent)
+        this.cancelResponse();
+    } else if (event.type === 'response.output_audio.delta') {
+      const id = event.response_id;
+      // GLM does not order audio and response.created against each other.
+      // Remember early audio so speech can cancel that same response once.
+      if (
+        id &&
+        !this.terminalResponses.has(id) &&
+        this.response !== 'idle' &&
+        (!this.responseId || id === this.responseId)
+      ) {
+        this.lateCancelError = false;
+        this.responseId = id;
+        this.audioStarted = true;
+        if (this.response === 'cancel_pending' && !this.cancelSent)
+          this.cancelResponse();
+      }
     } else if (event.type === 'response.done') {
       const id = event.response_id ?? event.response?.id;
       if (id && this.terminalResponses.has(id)) return;
       if (!id || !this.responseId || id === this.responseId) {
+        this.lateCancelError =
+          this.cancelSent &&
+          !this.cancelErrorHandled &&
+          event.response?.status === 'cancelled';
         this.rememberTerminal(id);
         this.response = 'idle';
         this.cancelSent = false;
+        this.audioStarted = false;
         this.flush();
       }
     } else if (
@@ -129,6 +179,8 @@ export class GLMLifecycle {
         this.rememberTerminal(this.responseId);
         this.response = 'idle';
         this.cancelSent = false;
+        this.audioStarted = false;
+        this.lateCancelError = false;
         this.flush();
       }
     } else if (event.type === 'error' && this.updatePending)
@@ -136,7 +188,11 @@ export class GLMLifecycle {
   }
   private cancelResponse() {
     this.cancelSent = true;
-    this.send({ type: 'response.cancel', event_id: crypto.randomUUID() });
+    this.send({
+      type: 'response.cancel',
+      event_id: crypto.randomUUID(),
+      client_timestamp: Date.now(),
+    });
   }
   private rememberTerminal(id?: string) {
     if (id) this.terminalResponses.add(id);
@@ -155,6 +211,7 @@ export class GLMLifecycle {
     this.finishing = true;
     this.nextPolicy = undefined;
     this.nextResponse = false;
+    this.lateCancelError = false;
     this.connection = 'closed';
   }
 }

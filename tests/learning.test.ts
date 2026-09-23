@@ -184,6 +184,11 @@ void test('calendar uses local daily hour, CRLF and selected duration', () => {
   assert.ok(!ics.includes('API'));
 });
 void test('preset endpoints and parameter families remain compatible', () => {
+  assert.equal(providers.deepseek.model, 'deepseek-v4-flash');
+  assert.deepEqual(
+    requestOptions({ ...defaultConfig, model: 'deepseek-flash' }),
+    { max_tokens: 1600, thinking: { type: 'disabled' } },
+  );
   for (const id of ['deepseek', 'glm', 'openai'] as const) {
     const c = { ...defaultConfig, provider: id, ...providers[id] };
     assert.equal(
@@ -276,6 +281,7 @@ void test('proxy sends a server-owned tutor prompt and current phrase context wi
     const sent = JSON.parse(
       typeof init?.body === 'string' ? init.body : 'null',
     );
+    assert.equal(sent.model, 'deepseek-v4-flash');
     assert.equal(sent.messages[0].role, 'system');
     const system = sent.messages[0].content as string;
     const referenceStart = system.indexOf('{"lesson"');
@@ -305,6 +311,29 @@ void test('proxy sends a server-owned tutor prompt and current phrase context wi
     ((await result.json()) as { content: string }).content,
     "I'm heading home now. Bye!",
   );
+});
+void test('selected DeepSeek V4.1 Flash uses the official API model ID', async (t) => {
+  mockFetch(t, async (url, init) => {
+    assert.equal(url, 'https://api.deepseek.com/chat/completions');
+    const sent = JSON.parse(
+      typeof init?.body === 'string' ? init.body : 'null',
+    );
+    assert.equal(sent.model, 'deepseek-flash');
+    assert.deepEqual(sent.thinking, { type: 'disabled' });
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { content: 'Hello.' }, finish_reason: 'stop' }],
+      }),
+      { status: 200 },
+    );
+  });
+  const result = await POST(
+    request({
+      ...body(),
+      config: { ...defaultConfig, model: 'deepseek-flash' },
+    }),
+  );
+  assert.equal(result.status, 200);
 });
 void test('authentication and quota failures never echo upstream secrets', async (t) => {
   mockFetch(

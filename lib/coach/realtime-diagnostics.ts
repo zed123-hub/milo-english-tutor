@@ -42,6 +42,7 @@ const names = [
   'first_audio',
   'response_done',
   'response_cancel',
+  'cancel_error_recovered',
   'output_audio_clear',
   'tool_arguments_rejected',
   'context_rotated',
@@ -65,6 +66,7 @@ const counters = [
   'responsesCreated',
   'firstAudio',
   'responsesDone',
+  'cancelErrorsRecovered',
   'toolArgumentsRejected',
   'contextRotations',
 ] as const;
@@ -333,6 +335,10 @@ export class RealtimeDiagnostics {
         const path = realtimeFieldPath(f);
         return path ? [path] : [];
       });
+  }
+  recoverableCancelError() {
+    this.data.counts.cancelErrorsRecovered++;
+    this.mark('cancel_error_recovered');
   }
   toolRejected() {
     this.data.counts.toolArgumentsRejected++;

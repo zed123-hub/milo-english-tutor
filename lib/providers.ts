@@ -126,7 +126,8 @@ export function requestOptions(config: ModelConfig) {
   if (config.provider === 'deepseek')
     return {
       max_tokens: 1600,
-      ...(config.model.startsWith('deepseek-v4')
+      ...(config.model === 'deepseek-flash' ||
+      config.model.startsWith('deepseek-v4')
         ? { thinking: { type: 'disabled' } }
         : {}),
     };

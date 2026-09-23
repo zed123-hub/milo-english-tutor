@@ -463,6 +463,18 @@ export class RealtimeRelay {
             event.type === 'error' &&
             event.error?.code !== 'response_cancel_not_active'
           ) {
+            // GLM can report a model query error while cancelling an audible
+            // response. Its protocol keeps the socket open and still emits
+            // response.done; let that terminal event release the pending turn.
+            if (
+              lifecycle instanceof GLMLifecycle &&
+              event.error?.code === 'MODEL_FAILED' &&
+              lifecycle.recoverCancelError(event.error?.providerCode)
+            ) {
+              trace.recoverableCancelError();
+              saveTrace(true);
+              return;
+            }
             fail(event.error ?? { code: 'MODEL_FAILED' }, 'upstream_event');
             return;
           }
