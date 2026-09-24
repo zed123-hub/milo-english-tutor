@@ -476,7 +476,7 @@ void test('providers: official endpoints, model families and provider-specific s
   assert.ok('input_audio_format' in g && g.input_audio_format === 'pcm24');
   assert.match(
     g.instructions,
-    /never end consecutive tutor turns with questions/i,
+    /(?:never|do not) end consecutive tutor turns with questions/i,
   );
   assert.equal(g.beta_fields.greeting_config.enable, false);
   assert.equal(g.beta_fields.greeting_config.content, 'Hello.');

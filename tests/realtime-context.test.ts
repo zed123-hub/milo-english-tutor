@@ -84,6 +84,7 @@ void test('realtime context: policy updates do not reinsert transcripts or openi
     'a different opening that should not restart the lesson';
   assert.equal(realtimeInstructions(data, options), before);
   assert.doesNotMatch(before, /recentExchange|Speech 49|nextOpening/);
+  assert.doesNotMatch(before, /fallbackTopic/);
   assert.match(before, /not a request to speak/);
 });
 
@@ -103,6 +104,7 @@ void test('realtime context: connection refresh uses bounded supplied context an
   assert.doesNotMatch(session.instructions, /Speech 49|nextOpening/);
   assert.match(session.instructions, /no greeting or repeated question/);
   assert.match(session.instructions, /Wait for new learner input/);
+  assert.doesNotMatch(session.instructions, /fallbackTopic/);
   const empty = realtimeInstructions(data, { recentExchange: [] });
   assert.doesNotMatch(empty, /Speech 49/);
 });
@@ -132,6 +134,62 @@ void test('realtime context: compact instructions preserve speech, adaptation an
     realtimeInstructions(freshData(), { policyOnly: true }),
     /openingSituation|nextOpening|latest usable learner exchange or memory/,
   );
+});
+
+void test('tutor: every speaking path leads a concrete everyday conversation instead of interviewing', () => {
+  const data = freshData();
+  const openai = realtimeSession(data, 'gpt-realtime-2.1-mini');
+  const qwen = websocketSession(
+    realtimeConfig({
+      realtimeProvider: 'qwen',
+      realtimeModel: 'qwen3.5-omni-flash-realtime',
+    }),
+    openai.instructions,
+    openai.tools,
+  );
+  const glm = websocketSession(
+    realtimeConfig({
+      realtimeProvider: 'glm',
+      realtimeModel: 'glm-realtime-air',
+    }),
+    openai.instructions,
+    openai.tools,
+  );
+  const prompts = [
+    ['ordinary voice', teacherInstructions(data)],
+    ['OpenAI', openai.instructions],
+    ['Qwen', qwen.session.instructions],
+    ['GLM', glm.session.instructions],
+  ] as const;
+  for (const [path, prompt] of prompts) {
+    assert.match(
+      prompt,
+      /(?:choose|pick|start) (?:a |the |your own )?(?:concrete |specific )?(?:topic|subject|everyday situation)/i,
+      `${path} should take responsibility for starting a topic`,
+    );
+    assert.match(
+      prompt,
+      /(?:concrete|specific|plausible|realistic) (?:everyday|daily|ordinary|real-life) (?:scene|situation|moment)/i,
+      `${path} should offer a believable situation that the learner can enter`,
+    );
+    assert.match(
+      prompt,
+      /(?:after each learner (?:answer|reply)|after every learner (?:answer|reply)|even (?:if|when) the learner (?:answers|replies)|learner replies between)/i,
+      `${path} should prevent question-after-every-answer even when learner turns separate tutor turns`,
+    );
+    assert.doesNotMatch(
+      prompt,
+      /\bNo role-play\b/i,
+      `${path} should permit natural immersion in a shared situation`,
+    );
+  }
+  assert.match(
+    openai.instructions,
+    /"fallbackTopic":"a small surprise in an ordinary day"/,
+  );
+  assert.ok(openai.instructions.length < 1900);
+  assert.ok(qwen.session.instructions.length < 1900);
+  assert.ok(glm.session.instructions.length < 1900);
 });
 
 void test('Qwen: the repeated fixed prompt and tools stay within a small wire budget', () => {
