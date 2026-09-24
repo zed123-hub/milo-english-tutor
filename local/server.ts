@@ -207,7 +207,7 @@ export async function runServer({
           return;
         }
         if (path === 'subtitles') {
-          send(res, 200, await service.subtitles(b.turnId, b.epoch));
+          send(res, 200, await service.subtitles(b.turnId, b.epoch, b.text));
           return;
         }
         if (path === 'speech') {

@@ -2,6 +2,7 @@ import {
   realtimeFault,
   RealtimeRequestError,
 } from '../lib/coach/realtime-errors';
+import { createHash } from 'node:crypto';
 import {
   effectiveDifficulty,
   requestedChallenge,
@@ -537,20 +538,30 @@ export class CoachService {
       instructions: this.instructions(data),
     };
   }
-  async subtitles(turnId: unknown, epoch: unknown) {
+  async subtitles(turnId: unknown, epoch: unknown, audibleText?: unknown) {
     const snapshot = this.repo.read();
     if (snapshot.epoch !== epoch) throw Error('CONFLICT');
-    const turn = snapshot.data.turns.find(
-      (t) => t.id === turnId && t.role === 'assistant',
-    );
-    if (!turn) throw Error('INVALID_ACTION');
-    assertEnglishSpeech(turn.text);
-    const cacheKey = String(epoch) + ':' + turn.id;
+    const turn =
+      typeof turnId === 'string'
+        ? snapshot.data.turns.find(
+            (t) => t.id === turnId && t.role === 'assistant',
+          )
+        : undefined;
+    const text =
+      turn?.text ??
+      (turnId === undefined && typeof audibleText === 'string'
+        ? audibleText.trim()
+        : undefined);
+    if (!text || (!turn && text.length > 1200)) throw Error('INVALID_ACTION');
+    assertEnglishSpeech(text);
+    const cacheKey = turn
+      ? `${epoch}:${turn.id}`
+      : `${epoch}:audible:${createHash('sha256').update(text).digest('hex')}`;
     let pending = this.subtitleCache.get(cacheKey);
     if (!pending) {
       const c = this.settings.analysisCredentials();
       pending = (async () => {
-        const englishSegments = subtitleSourceSegments(turn.text);
+        const englishSegments = subtitleSourceSegments(text);
         const raw = await callModel(
           c.config,
           c.key,
@@ -566,6 +577,7 @@ export class CoachService {
             },
           ],
           AbortSignal.timeout(16000),
+          turn ? undefined : 512,
         );
         let parsed: unknown;
         try {
@@ -578,7 +590,7 @@ export class CoachService {
         } catch {
           throw Error('MODEL_OUTPUT');
         }
-        const pairs = translatedSubtitlePairs(parsed, turn.text);
+        const pairs = translatedSubtitlePairs(parsed, text);
         if (!pairs) throw Error('MODEL_OUTPUT');
         return pairs;
       })();

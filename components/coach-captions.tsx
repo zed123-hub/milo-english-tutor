@@ -5,6 +5,8 @@ import {
   type CaptionEvent,
   type CaptionMode,
   speechWords,
+  SubtitleRequestScheduler,
+  subtitleRequests,
   visiblePairs,
 } from '@/lib/coach/captions';
 import type { CoachClient } from '@/lib/coach/client';
@@ -21,31 +23,35 @@ export function CoachCaptions({
 }) {
   const viewport = useRef<HTMLDivElement>(null),
     flow = useRef<HTMLDivElement>(null);
-  const candidates = cues
-    .filter((c) => c.started && c.turnId && !c.pairs && !c.translationError)
-    .slice(-3);
-  const needed = candidates.map((c) => `${c.id}|${c.turnId}`).join('\n');
+  const mounted = useRef(false);
+  const scheduler = useRef<SubtitleRequestScheduler | null>(null);
+  scheduler.current ??= new SubtitleRequestScheduler((request, epoch) => {
+    void client
+      .request('subtitles', { ...request, epoch }, AbortSignal.timeout(17000))
+      .then((result) => {
+        if (mounted.current && client.snapshot?.epoch === epoch)
+          dispatch({
+            type: 'translation',
+            id: request.id,
+            pairs: result.subtitles,
+          });
+      })
+      .catch(() => {
+        if (mounted.current && client.snapshot?.epoch === epoch)
+          dispatch({ type: 'translation', id: request.id, error: true });
+      });
+  });
   const epoch = client.snapshot?.epoch;
   useEffect(() => {
-    if (mode !== 'bilingual' || !needed || !epoch) return;
-    let cancelled = false;
-    for (const line of needed.split('\n')) {
-      const [id, turnId] = line.split('|');
-      void client
-        .request('subtitles', { turnId, epoch }, AbortSignal.timeout(17000))
-        .then((result) => {
-          if (!cancelled && client.snapshot?.epoch === epoch)
-            dispatch({ type: 'translation', id, pairs: result.subtitles });
-        })
-        .catch(() => {
-          if (!cancelled && client.snapshot?.epoch === epoch)
-            dispatch({ type: 'translation', id, error: true });
-        });
-    }
+    scheduler.current?.update(cues, epoch, mode === 'bilingual');
+  }, [mode, epoch, cues]);
+  useEffect(() => {
+    mounted.current = true;
     return () => {
-      cancelled = true;
+      mounted.current = false;
+      scheduler.current?.stop();
     };
-  }, [mode, needed, epoch, client, dispatch]);
+  }, []);
   useLayoutEffect(() => {
     const box = viewport.current,
       content = flow.current;
@@ -105,7 +111,9 @@ export function CoachCaptions({
                           <p lang="zh-CN" className="c-caption-pending">
                             {c.translationError
                               ? '这句暂时显示英文；对话继续'
-                              : '翻译稍后显示；对话继续'}
+                              : c.done && !subtitleRequests([c]).length
+                                ? '这段语音太短或被打断，暂只显示英文'
+                                : '翻译稍后显示；对话继续'}
                           </p>
                         </div>,
                       ],

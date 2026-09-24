@@ -73,6 +73,8 @@ import {
   estimatedWords,
   validateSubtitlePairs,
   translatedSubtitlePairs,
+  subtitleRequests,
+  SubtitleRequestScheduler,
   visiblePairs,
   type CaptionEvent,
   type CaptionCue,
@@ -112,6 +114,123 @@ void test('captions: three-state toggle; unspoken text is hidden; interruption f
   assert.equal(cues[0].interrupted, true);
   assert.equal(cues[0].turnId, 'saved-turn');
   assert.deepEqual(captionReducer(cues, { type: 'clear' }), []);
+});
+void test('captions: an interrupted audible reply without a final turn still requests one screen-only translation', () => {
+  const cues: CaptionCue[] = [
+    {
+      id: 'response-one',
+      text: 'We could visit the market together tonight.',
+      words: 5,
+      started: true,
+      done: true,
+      interrupted: true,
+      approximate: true,
+    },
+  ];
+  assert.deepEqual(subtitleRequests(cues), [
+    { id: 'response-one', text: 'We could visit the market' },
+  ]);
+  assert.deepEqual(
+    subtitleRequests([
+      {
+        ...cues[0],
+        text: 'Hello there.',
+        words: 2,
+        done: true,
+        interrupted: false,
+      },
+    ]),
+    [{ id: 'response-one', text: 'Hello there.' }],
+  );
+  assert.deepEqual(
+    subtitleRequests([
+      { ...cues[0], turnId: 'saved-one' },
+      ...['two', 'three', 'four'].map((id) => ({
+        ...cues[0],
+        id,
+        done: false,
+      })),
+    ]),
+    [{ id: 'response-one', turnId: 'saved-one' }],
+  );
+});
+void test('captions: cue changes neither drop a valid translation nor start duplicate paid requests', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const sent: { id: string; turnId?: string; text?: string }[] = [];
+  const scheduler = new SubtitleRequestScheduler((request) =>
+    sent.push(request),
+  );
+  const first: CaptionCue = {
+    id: 'response-one',
+    text: 'Hello there.',
+    words: 2,
+    started: true,
+    done: false,
+    interrupted: false,
+    approximate: true,
+    turnId: 'saved-one',
+  };
+  scheduler.update([first], 'epoch-one', true);
+  scheduler.update(
+    [
+      first,
+      {
+        ...first,
+        id: 'response-two',
+        turnId: undefined,
+        text: 'We could visit the market together tonight.',
+        words: 5,
+        done: true,
+        interrupted: true,
+      },
+    ],
+    'epoch-one',
+    true,
+  );
+  assert.deepEqual(sent, [{ id: 'response-one', turnId: 'saved-one' }]);
+  t.mock.timers.tick(799);
+  assert.equal(sent.length, 1);
+  const second = {
+    ...first,
+    id: 'response-two',
+    turnId: 'saved-two',
+    text: 'We could visit the market together tonight.',
+    words: 5,
+    done: true,
+    interrupted: true,
+  };
+  scheduler.update([first, second], 'epoch-one', true);
+  t.mock.timers.tick(1000);
+  scheduler.update([first, second], 'epoch-one', true);
+  assert.deepEqual(sent, [
+    { id: 'response-one', turnId: 'saved-one' },
+    { id: 'response-two', turnId: 'saved-two' },
+  ]);
+  scheduler.stop();
+});
+void test('captions: a stable audible fragment falls back once when no saved turn arrives', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const sent: { id: string; turnId?: string; text?: string }[] = [];
+  const scheduler = new SubtitleRequestScheduler((request) =>
+    sent.push(request),
+  );
+  const cue: CaptionCue = {
+    id: 'response-one',
+    text: 'We could visit the market together tonight.',
+    words: 5,
+    started: true,
+    done: true,
+    interrupted: true,
+    approximate: true,
+  };
+  scheduler.update([cue], 'epoch-one', true);
+  scheduler.update([cue], 'epoch-one', true);
+  t.mock.timers.tick(800);
+  scheduler.update([cue], 'epoch-one', true);
+  assert.deepEqual(sent, [
+    { id: 'response-one', text: 'We could visit the market' },
+  ]);
+  scheduler.stop();
 });
 void test('captions: boundary indices and audio duration reveal whole words; bilingual reveals complete pairs', () => {
   const text = 'Hello there. How are you?';

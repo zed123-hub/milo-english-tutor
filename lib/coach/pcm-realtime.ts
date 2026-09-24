@@ -22,6 +22,62 @@ class PlaybackCapacityError extends Error {
     super('声音播放缓冲已达到内存上限，请暂停后重新连接。');
   }
 }
+
+/** Keep GLM's client VAD from hearing quiet speaker bleed during playback. */
+class GLMPlaybackInputGate {
+  private responseId = '';
+  private confirming: Uint8Array[] = [];
+  private strongFrames = 0;
+  private moderateFrames = 0;
+  private bargeIn = false;
+  private cooldownFrames = 0;
+
+  begin(responseId: string) {
+    if (!responseId || this.responseId === responseId) return;
+    this.responseId = responseId;
+    this.confirming = [];
+    this.strongFrames = 0;
+    this.moderateFrames = 0;
+    this.bargeIn = false;
+    this.cooldownFrames = 0;
+  }
+
+  end(responseId: string) {
+    if (!responseId || responseId !== this.responseId) return;
+    this.responseId = '';
+    this.cooldownFrames = this.bargeIn ? 0 : 3;
+    this.confirming = [];
+    this.strongFrames = 0;
+    this.moderateFrames = 0;
+    this.bargeIn = false;
+  }
+
+  accept(frame: Uint8Array): Uint8Array[] {
+    if (!this.responseId && this.cooldownFrames === 0) return [frame];
+    if (this.bargeIn) return [frame];
+    const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength);
+    let power = 0;
+    for (let i = 0; i < frame.byteLength; i += 2)
+      power += (view.getInt16(i, true) / 32768) ** 2;
+    const rms = Math.sqrt(power / (frame.byteLength / 2));
+    this.confirming.push(frame);
+    if (this.confirming.length > 5) this.confirming.shift();
+    this.strongFrames = rms >= 0.032 ? this.strongFrames + 1 : 0;
+    this.moderateFrames = rms >= 0.022 ? this.moderateFrames + 1 : 0;
+    if (this.strongFrames >= 3 || this.moderateFrames >= 5) {
+      this.bargeIn = true;
+      this.cooldownFrames = 0;
+      const preRoll = this.confirming;
+      this.confirming = [];
+      return preRoll;
+    }
+    if (this.cooldownFrames > 0) {
+      this.cooldownFrames--;
+      if (this.cooldownFrames === 0) this.confirming = [];
+    }
+    return [];
+  }
+}
 export class PCMPlayback {
   private nextTime = 0;
   private queuedBytes = 0;
@@ -119,6 +175,7 @@ export class PCMRealtime {
   private closed = false;
   private quiescent = false;
   private responseId = '';
+  private glmInputGate: GLMPlaybackInputGate | null = null;
   constructor(
     private client: CoachClient,
     private context: AudioContext,
@@ -126,6 +183,8 @@ export class PCMRealtime {
     private fail: (e: Error) => void,
   ) {}
   async start(stream: MediaStream, signal: AbortSignal) {
+    if (this.client.settings?.realtimeProvider === 'glm')
+      this.glmInputGate = new GLMPlaybackInputGate();
     const connection = await this.client.request(
       'realtime/connect',
       {
@@ -167,7 +226,14 @@ export class PCMRealtime {
     this.player = new PCMPlayback(
       this.context,
       connection.outputRate,
-      this.emit,
+      (event) => {
+        if (
+          event.type === 'output_audio_buffer.stopped' ||
+          event.type === 'output_audio_buffer.cleared'
+        )
+          this.glmInputGate?.end(event.response_id ?? '');
+        this.emit(event);
+      },
     );
     await new Promise<void>((resolve, reject) => {
       const abort = () => {
@@ -222,10 +288,11 @@ export class PCMRealtime {
             }: MessageEvent<ArrayBuffer>) => {
               if (this.closed || socket.readyState !== WebSocket.OPEN) return;
               const bytes = new Uint8Array(data);
-              this.send({
-                type: 'input_audio_buffer.append',
-                audio: btoa(String.fromCharCode(...bytes)),
-              });
+              for (const frame of this.glmInputGate?.accept(bytes) ?? [bytes])
+                this.send({
+                  type: 'input_audio_buffer.append',
+                  audio: btoa(String.fromCharCode(...frame)),
+                });
             };
             resolve();
             return;
@@ -242,6 +309,8 @@ export class PCMRealtime {
             return;
           if (e.type === 'input_audio_buffer.speech_started')
             this.player?.block(this.responseId);
+          if (e.type === 'response.output_audio.delta')
+            this.glmInputGate?.begin(e.response_id ?? '');
           if (e.type === 'response.output_audio.delta')
             this.player?.append(e.response_id ?? '', e.delta ?? '');
           if (

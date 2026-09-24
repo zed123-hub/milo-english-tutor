@@ -24,6 +24,86 @@ export type CaptionEvent =
   | { type: 'end'; id: string; interrupted: boolean }
   | { type: 'translation'; id: string; pairs?: SubtitlePair[]; error?: boolean }
   | { type: 'clear' };
+export type SubtitleRequest = { id: string; turnId?: string; text?: string };
+export function subtitleRequests(cues: CaptionCue[]): SubtitleRequest[] {
+  return cues
+    .filter(
+      (cue) =>
+        cue.started && cue.words > 0 && !cue.pairs && !cue.translationError,
+    )
+    .flatMap((cue): SubtitleRequest[] => {
+      if (cue.turnId) return [{ id: cue.id, turnId: cue.turnId }];
+      if (!cue.done || (cue.interrupted && cue.words < 4)) return [];
+      const text = speechWords(cue.text).slice(0, cue.words).join(' ');
+      return text.length >= (cue.interrupted ? 18 : 2) &&
+        text.length <= 1200 &&
+        isEnglishSpeech(text)
+        ? [{ id: cue.id, text }]
+        : [];
+    })
+    .slice(-3);
+}
+
+/** One request per audible cue; a late saved turn replaces a pending fallback. */
+export class SubtitleRequestScheduler {
+  private requested = new Set<string>();
+  private delayed = new Map<string, ReturnType<typeof setTimeout>>();
+  private cues: CaptionCue[] = [];
+  private epoch?: string;
+  private enabled = false;
+  constructor(
+    private issue: (request: SubtitleRequest, epoch: string) => void,
+  ) {}
+  update(cues: CaptionCue[], epoch: string | undefined, enabled: boolean) {
+    if (this.epoch !== epoch) {
+      this.clearTimers();
+      this.requested.clear();
+      this.epoch = epoch;
+    }
+    this.cues = cues;
+    this.enabled = enabled;
+    if (!enabled || !epoch) return;
+    for (const request of subtitleRequests(cues)) {
+      const key = `${epoch}:${request.id}`;
+      if (this.requested.has(key)) continue;
+      if (request.turnId) {
+        this.clearTimer(key);
+        this.send(request, epoch);
+      } else if (!this.delayed.has(key)) {
+        this.delayed.set(
+          key,
+          setTimeout(() => {
+            this.delayed.delete(key);
+            if (!this.enabled || this.epoch !== epoch) return;
+            const latest = subtitleRequests(this.cues).find(
+              (item) => item.id === request.id,
+            );
+            if (latest) this.send(latest, epoch);
+          }, 800),
+        );
+      }
+    }
+    if (this.requested.size > 96)
+      this.requested = new Set([...this.requested].slice(-64));
+  }
+  stop() {
+    this.clearTimers();
+    this.enabled = false;
+  }
+  private send(request: SubtitleRequest, epoch: string) {
+    const key = `${epoch}:${request.id}`;
+    if (this.requested.has(key)) return;
+    this.requested.add(key);
+    this.issue(request, epoch);
+  }
+  private clearTimer(key: string) {
+    clearTimeout(this.delayed.get(key));
+    this.delayed.delete(key);
+  }
+  private clearTimers() {
+    for (const key of this.delayed.keys()) this.clearTimer(key);
+  }
+}
 export function nextCaptionMode(mode: CaptionMode): CaptionMode {
   return mode === 'off' ? 'english' : mode === 'english' ? 'bilingual' : 'off';
 }

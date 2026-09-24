@@ -112,3 +112,125 @@ void test('PCM capture: transient upload congestion queues speech and finish in 
   t.mock.timers.tick(30000);
   assert.equal(writes.length, 3);
 });
+
+void test('GLM PCM capture: tutor playback bleed is not uploaded as learner speech', async (t) => {
+  const originals = new Map<string, PropertyDescriptor | undefined>();
+  const install = (name: string, value: unknown) => {
+    originals.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
+    Object.defineProperty(globalThis, name, { configurable: true, value });
+  };
+  const writes: { type: string; audio?: string }[] = [];
+  class Socket {
+    static OPEN = 1;
+    static instances: Socket[] = [];
+    readyState = 1;
+    bufferedAmount = 0;
+    onmessage?: (event: { data: string }) => void;
+    constructor() {
+      Socket.instances.push(this);
+    }
+    send(text: string) {
+      writes.push(JSON.parse(text));
+    }
+    close() {
+      this.readyState = 3;
+    }
+  }
+  const node = { connect() {}, disconnect() {} };
+  class Worklet {
+    static instances: Worklet[] = [];
+    port = {
+      onmessage: null as ((event: { data: ArrayBuffer }) => void) | null,
+    };
+    constructor() {
+      Worklet.instances.push(this);
+    }
+    connect() {}
+    disconnect() {}
+  }
+  install('WebSocket', Socket);
+  install('AudioWorkletNode', Worklet);
+  install('location', { host: 'localhost:39999' });
+  const client = new CoachClient(() => {});
+  client.settings = { realtimeProvider: 'glm' } as NonNullable<
+    CoachClient['settings']
+  >;
+  client.request = async () => ({
+    ticket: 'offline-ticket',
+    inputRate: 24000,
+    outputRate: 24000,
+  });
+  const context = {
+    audioWorklet: { async addModule() {} },
+    createMediaStreamSource: () => node,
+    createGain: () => ({ ...node, gain: { value: 1 } }),
+  } as unknown as AudioContext;
+  const transport = new PCMRealtime(
+    client,
+    context,
+    () => {},
+    () => {},
+  );
+  t.after(() => {
+    transport.close();
+    for (const [name, descriptor] of originals) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
+  });
+  const opening = transport.start(
+    {} as MediaStream,
+    new AbortController().signal,
+  );
+  for (let i = 0; i < 8; i++) await Promise.resolve();
+  const socket = Socket.instances[0];
+  socket.onmessage!({ data: JSON.stringify({ type: 'milo.ready' }) });
+  await opening;
+  Object.assign(transport, {
+    player: {
+      append() {},
+      done() {},
+      isBlocked() {
+        return false;
+      },
+      clear() {},
+    },
+  });
+  socket.onmessage!({
+    data: JSON.stringify({
+      type: 'response.output_audio.delta',
+      response_id: 'teacher-reply',
+      delta: 'AAAA',
+    }),
+  });
+  const mic = Worklet.instances[0];
+  const frame = (amplitude: number) => {
+    const pcm = new Int16Array(2400);
+    pcm.fill(amplitude);
+    mic.port.onmessage!({ data: pcm.buffer });
+  };
+  for (let i = 0; i < 4; i++) frame(524);
+  assert.equal(
+    writes.filter((event) => event.type === 'input_audio_buffer.append').length,
+    0,
+    'low-level echo during tutor speech should not reach server VAD',
+  );
+  for (let i = 0; i < 5; i++) frame(2000);
+  assert.ok(
+    writes.some((event) => event.type === 'input_audio_buffer.append'),
+    'sustained clear learner speech must still reach the provider',
+  );
+  const afterClearBarge = writes.length;
+  socket.onmessage!({
+    data: JSON.stringify({
+      type: 'response.output_audio.delta',
+      response_id: 'next-teacher-reply',
+      delta: 'AAAA',
+    }),
+  });
+  for (let i = 0; i < 5; i++) frame(900);
+  assert.ok(
+    writes.length > afterClearBarge,
+    'a quieter but sustained learner interruption should also pass',
+  );
+});

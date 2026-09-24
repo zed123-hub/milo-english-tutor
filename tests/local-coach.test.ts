@@ -775,3 +775,34 @@ void test('local: subtitles translate only the saved teacher speech, reuse one r
   await assert.rejects(service.speech('teacher-line', epoch), /ENGLISH_ONLY/);
   assert.equal(requests, 1);
 });
+void test('local: an audible interrupted English fragment can receive screen-only Chinese without becoming a saved turn', async (t) => {
+  const { repo, settings, service } = fixture(t);
+  settings.save({ ...defaultSettings, evaluatorKey: 'test-evaluator-key' });
+  const before = repo.read();
+  const original = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return Response.json({
+      choices: [{ message: { content: '["我们今晚可以一起去市场。"]' } }],
+    });
+  };
+  t.after(() => {
+    globalThis.fetch = original;
+  });
+  const fragment = 'We could visit the market together tonight.';
+  const result = await service.subtitles(undefined, before.epoch, fragment);
+  assert.deepEqual(result.subtitles, [
+    { english: fragment, chinese: '我们今晚可以一起去市场。' },
+  ]);
+  assert.equal(repo.read().revision, before.revision);
+  await assert.rejects(
+    service.subtitles(undefined, before.epoch, '你好'),
+    /ENGLISH_ONLY/,
+  );
+  await assert.rejects(
+    service.subtitles(undefined, before.epoch, 'Hello '.repeat(250)),
+    /INVALID_ACTION/,
+  );
+  assert.equal(calls, 1);
+});
