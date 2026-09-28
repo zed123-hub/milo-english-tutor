@@ -995,6 +995,15 @@ export class VoiceCoach {
       !event.type.startsWith('conversation.item.input_audio_transcription.')
     )
       return;
+    if (event.type === 'milo.reconnected') {
+      this.clearResponseWait();
+      this.userSpeaking = false;
+      this.status(this.outputAudible ? 'speaking' : 'listening');
+      this.cb.message(
+        '实时连接已恢复；刚才一句可能没听完整，可以接着说或重说。',
+      );
+      return;
+    }
     if (
       event.type === 'response.done' &&
       this.interruptedResponses.has(

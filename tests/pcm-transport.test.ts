@@ -186,10 +186,13 @@ void test('GLM PCM capture: tutor playback bleed is not uploaded as learner spee
   const socket = Socket.instances[0];
   socket.onmessage!({ data: JSON.stringify({ type: 'milo.ready' }) });
   await opening;
+  const finished: string[] = [];
   Object.assign(transport, {
     player: {
       append() {},
-      done() {},
+      done(id: string) {
+        finished.push(id);
+      },
       isBlocked() {
         return false;
       },
@@ -223,6 +226,13 @@ void test('GLM PCM capture: tutor playback bleed is not uploaded as learner spee
   const afterClearBarge = writes.length;
   socket.onmessage!({
     data: JSON.stringify({
+      type: 'response.created',
+      response_id: 'next-teacher-reply',
+      response: { id: 'next-teacher-reply', status: 'in_progress' },
+    }),
+  });
+  socket.onmessage!({
+    data: JSON.stringify({
       type: 'response.output_audio.delta',
       response_id: 'next-teacher-reply',
       delta: 'AAAA',
@@ -232,5 +242,12 @@ void test('GLM PCM capture: tutor playback bleed is not uploaded as learner spee
   assert.ok(
     writes.length > afterClearBarge,
     'a quieter but sustained learner interruption should also pass',
+  );
+  socket.onmessage!({ data: JSON.stringify({ type: 'milo.reconnected' }) });
+  assert.deepEqual(finished, ['next-teacher-reply']);
+  assert.equal(
+    Worklet.instances.length,
+    1,
+    'Upstream recovery must not create a second browser microphone capture',
   );
 });

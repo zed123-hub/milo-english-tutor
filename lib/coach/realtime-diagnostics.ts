@@ -46,6 +46,8 @@ const names = [
   'output_audio_clear',
   'tool_arguments_rejected',
   'context_rotated',
+  'reconnect_started',
+  'reconnect_ready',
   'error',
   'closed',
 ] as const;
@@ -69,6 +71,7 @@ const counters = [
   'cancelErrorsRecovered',
   'toolArgumentsRejected',
   'contextRotations',
+  'reconnectAttempts',
 ] as const;
 type Counts = Record<(typeof counters)[number], number>;
 export type RealtimeDiagnostic = {
@@ -84,6 +87,7 @@ export type RealtimeDiagnostic = {
   usage?: RealtimeUsageDiagnostic;
   error?: RealtimeFault;
   rejectedFields?: string[];
+  upstreamCloseCode?: number;
   closeCategory?:
     | 'local_stop'
     | 'upstream_close'
@@ -137,6 +141,12 @@ export function safeRealtimeDiagnostic(value: unknown): RealtimeDiagnostic {
             return p ? [p] : [];
           }),
         }
+      : {}),
+    ...(typeof v.upstreamCloseCode === 'number' &&
+    Number.isInteger(v.upstreamCloseCode) &&
+    v.upstreamCloseCode >= 1000 &&
+    v.upstreamCloseCode <= 4999
+      ? { upstreamCloseCode: v.upstreamCloseCode }
       : {}),
     ...([
       'local_stop',
@@ -199,6 +209,17 @@ export class RealtimeDiagnostics {
   contextRotation() {
     this.data.counts.contextRotations++;
     this.mark('context_rotated');
+  }
+  upstreamClose(code: number) {
+    if (Number.isInteger(code) && code >= 1000 && code <= 4999)
+      this.data.upstreamCloseCode = code;
+  }
+  reconnectStarted() {
+    this.data.counts.reconnectAttempts++;
+    this.mark('reconnect_started');
+  }
+  reconnectReady() {
+    this.mark('reconnect_ready');
   }
   rtp(packets: number, bytes: number) {
     this.data.counts.audioPacketsSent = Math.max(

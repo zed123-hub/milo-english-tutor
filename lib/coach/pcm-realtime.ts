@@ -272,6 +272,13 @@ export class PCMRealtime {
               this.emit(e);
             return;
           }
+          if (e.type === 'milo.reconnected') {
+            // The old provider cannot send a final audio-done after a drop.
+            // Finish only already received sound; never request another reply.
+            this.player?.done(this.responseId);
+            this.emit(e);
+            return;
+          }
           if (e.type === 'milo.ready') {
             settle();
             this.capture = new AudioWorkletNode(this.context, 'milo-pcm', {

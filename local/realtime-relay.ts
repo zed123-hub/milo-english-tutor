@@ -183,6 +183,8 @@ export class RealtimeRelay {
       config.provider as 'qwen' | 'glm',
     );
     let rotating = false;
+    let recovering = false;
+    let reconnectAttempts = 0;
     let lastSignal = 0;
     let lastUpstreamEvent = Date.now();
     const heldAudio: { audio: string; rms: number; ms: number }[] = [];
@@ -409,8 +411,15 @@ export class RealtimeRelay {
           if (event.type === 'session.updated') {
             diagnostics.phase = 'ready';
             if (rotating && lifecycle.ready) {
+              const restored = recovering;
               rotating = false;
+              recovering = false;
               clearTimeout(setupTimer);
+              if (restored) {
+                trace.reconnectReady();
+                saveTrace(true);
+                browser.send(JSON.stringify({ type: 'milo.reconnected' }));
+              }
               if (quiescent) {
                 heldAudio.length = 0;
                 heldBytes = 0;
@@ -531,14 +540,64 @@ export class RealtimeRelay {
         });
       });
       socket.on('error', () => {
-        if (current()) fail('REALTIME_CONNECTION', 'upstream_socket');
+        if (current() && !recoverUpstream(1006))
+          fail('REALTIME_CONNECTION', 'upstream_socket');
       });
       socket.on('close', (code) => {
         if (current() && !failing) {
           diagnostics.closeCode = code;
-          fail('REALTIME_CONNECTION', 'upstream_close');
+          trace.upstreamClose(code);
+          saveTrace(true);
+          if (!recoverUpstream(code))
+            fail('REALTIME_CONNECTION', 'upstream_close');
         }
       });
+    };
+    const replaceUpstream = (recovery: boolean) => {
+      rotating = true;
+      recovering = recovery;
+      diagnostics.phase = 'configuring';
+      const old = upstream;
+      if (recovery) input?.abandon();
+      else input?.clear();
+      lifecycle.close();
+      output.close();
+      try {
+        upstream = this.connect(url.href, key);
+        events = new RealtimeEvents(config.provider);
+        output = makeOutput();
+        lifecycle = makeLifecycle(true);
+        contextWindow.reset();
+        makeInput();
+        if (recovery) trace.reconnectStarted();
+        else trace.contextRotation();
+        saveTrace(true);
+        clearTimeout(setupTimer);
+        setupTimer = setTimeout(() => fail('REALTIME_TIMEOUT'), 20000);
+        attachUpstream();
+        old.terminate();
+      } catch {
+        old.terminate();
+        fail('REALTIME_CONNECTION');
+      }
+    };
+    const recoverUpstream = (code: number) => {
+      // A single transport recovery keeps the browser conversation alive.
+      // Never replay an already requested model reply or retry indefinitely.
+      if (
+        config.provider !== 'glm' ||
+        !ready ||
+        quiescent ||
+        rotating ||
+        reconnectAttempts >= 1 ||
+        browser.readyState !== WebSocket.OPEN ||
+        !this.valid(ticket) ||
+        ![1000, 1001, 1005, 1006, 1011, 1012, 1013, 1014].includes(code)
+      )
+        return false;
+      reconnectAttempts++;
+      replaceUpstream(true);
+      return true;
     };
     attachUpstream();
     const contextTimer = setInterval(() => {
@@ -558,27 +617,7 @@ export class RealtimeRelay {
         return;
       // Keep the browser/audio player alive. A new upstream gets only bounded text,
       // never the accumulated audio history and never another greeting.
-      rotating = true;
-      const old = upstream;
-      lifecycle.close();
-      output.close();
-      input?.clear();
-      try {
-        upstream = this.connect(url.href, key);
-        events = new RealtimeEvents(config.provider);
-        output = makeOutput();
-        lifecycle = makeLifecycle(true);
-        contextWindow.reset();
-        makeInput();
-        trace.contextRotation();
-        saveTrace(true);
-        setupTimer = setTimeout(() => fail('REALTIME_TIMEOUT'), 20000);
-        attachUpstream();
-        old.terminate();
-      } catch {
-        old.terminate();
-        fail('REALTIME_CONNECTION');
-      }
+      replaceUpstream(false);
     }, 250);
     browser.on('error', cleanup);
     browser.on('close', cleanup);

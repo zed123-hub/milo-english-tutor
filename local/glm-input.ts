@@ -161,4 +161,18 @@ export class GLMInput {
     this.aliases.clear();
     this.early.clear();
   }
+
+  /** A dropped upstream cannot finish or transcribe its in-flight audio. */
+  abandon() {
+    const active = this.active?.id;
+    const pending = this.pending.map((commit) => commit.id);
+    this.clear();
+    if (active)
+      this.emit({ type: 'input_audio_buffer.speech_stopped', item_id: active });
+    for (const id of [...(active ? [active] : []), ...pending])
+      this.emit({
+        type: 'conversation.item.input_audio_transcription.failed',
+        item_id: id,
+      });
+  }
 }
