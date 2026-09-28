@@ -107,7 +107,7 @@ Key 仅在当前本机服务进程的内存中保存，不返回页面、不写�
 
 源代码采用 [MIT License](LICENSE)。
 
-`main` 保存已公开的预览快照；`codex/development` 用于继续开发。请从开发分支提交后续修改，验证通过后再合入 `main`。仓库不会包含 API Key、本机学习数据、诊断记录或旧托管站点配置。
+`main` 为当前公开版本；`codex/development` 用于继续开发。后续修改先在开发分支验证，再合入 `main`。仓库不会包含 API Key、本机学习数据、诊断记录或旧托管站点配置。
 
 ```sh
 npm run typecheck
